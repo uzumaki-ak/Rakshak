@@ -1,50 +1,254 @@
-# Welcome to your Expo app 👋
+# Rakshak App Tab Structure & Features
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+## 1. 🏠 HOME TAB (`app/(tabs)/home.tsx`)
 
-## Get started
+**Primary Purpose**: Dashboard with quick access to critical information
 
-1. Install dependencies
+### Key Features:
+- **Expiry Alerts Dashboard**
+  - Medicines expiring in next 7/30 days
+  - Critical alerts (expired medicines)
+  - Color-coded urgency indicators
 
-   ```bash
-   npm install
-   ```
+- **Quick Stats Cards**
+  - Total active medicines
+  - Medicines expiring soon
+  - Pending reminders
+  - Recent scans count
 
-2. Start the app
+- **Quick Actions**
+  - Quick scan button
+  - Add medicine manually
+  - Voice search medicine
+  - Emergency medicine finder
 
-   ```bash
-   npx expo start
-   ```
+- **Recent Activity Feed**
+  - Last 5 scanned medicines
+  - Recent reminders
+  - AI chat summaries
 
-In the output, you'll find options to open the app in a
+### Database Tables Used:
+- `medicines` (active medicines, expiry dates)
+- `reminders` (upcoming notifications)
+- `user_activities` (recent actions)
+- `scans` (recent scan history)
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+---
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+## 2. 📸 SCAN TAB (`app/(tabs)/scan.tsx`)
 
-## Get a fresh project
+**Primary Purpose**: Medicine registration through camera/barcode scanning
 
-When you're ready, run:
+### Key Features:
+- **Multi-Mode Scanning**
+  - OCR text scanning (medicine strips/boxes)
+  - Barcode/QR code scanning
+  - Batch scanning (multiple medicines)
+  - Gallery image upload
 
-```bash
-npm run reset-project
-```
+- **Smart Recognition**
+  - Auto-detect expiry dates
+  - Medicine name extraction
+  - Batch number recognition
+  - Manufacturer identification
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+- **Post-Scan Actions**
+  - Confirm/edit extracted data
+  - Set custom reminders
+  - Add storage location
+  - Add personal notes
 
-## Learn more
+- **Scan History**
+  - Failed scans for retry
+  - Scan accuracy feedback
+  - Recent successful scans
 
-To learn more about developing your project with Expo, look at the following resources:
+### Database Tables Used:
+- `scans` (OCR results, images)
+- `medicines` (create new entries)
+- `reminders` (set notifications)
+- `canonical_medicines` (medicine lookup)
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+---
 
-## Join the community
+## 3. 💊 MEDICINES TAB (`app/(tabs)/medicines.tsx`)
 
-Join our community of developers creating universal apps.
+**Primary Purpose**: Complete medicine inventory management
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+### Key Features:
+- **Medicine Inventory**
+  - All active medicines list
+  - Filter by expiry status (expired/expiring/fresh)
+  - Sort by expiry date/name/type
+  - Search functionality
+
+- **Medicine Categories**
+  - Prescription medicines
+  - OTC medicines
+  - Supplements
+  - Herbal medicines
+
+- **Inventory Management**
+  - Update quantities
+  - Mark as consumed/donated
+  - Move to disposed
+  - Share with family
+
+- **Medicine Details**
+  - Full medicine profile
+  - Usage instructions
+  - Storage requirements
+  - Related reminders
+
+### Database Tables Used:
+- `medicines` (complete inventory)
+- `reminders` (medicine-specific alerts)
+- `medicine_donations` (sharing features)
+- `canonical_medicines` (detailed info)
+
+---
+
+## 4. 🤖 ASSISTANT TAB (`app/(tabs)/assistant.tsx`)
+
+**Primary Purpose**: AI-powered health assistance and report analysis
+
+### Key Features:
+- **Symptom Checker**
+  - Describe symptoms → get AI suggestions
+  - OTC medicine recommendations
+  - Home remedy suggestions
+  - When to see a doctor warnings
+
+- **Report Analysis**
+  - Upload lab reports (PDF/images)
+  - AI summarization of results
+  - Key findings extraction
+  - Normal/abnormal value indicators
+
+- **Medicine Information**
+  - Drug interactions checker
+  - Side effects information
+  - Dosage recommendations
+  - Alternative medicines
+
+- **Chat History**
+  - Persistent conversation threads
+  - Report-specific chats
+  - Bookmark important responses
+  - Share chat with doctors
+
+### Database Tables Used:
+- `ai_chat_sessions` (chat threads)
+- `chat_messages` (conversation history)
+- `medical_reports` (uploaded reports)
+- `medicines` (drug interaction checks)
+- `canonical_medicines` (medicine database)
+
+---
+
+## 5. 🕐 HISTORY TAB (`app/(tabs)/history.tsx`)
+
+**Primary Purpose**: Activity tracking, reminders, and past records
+
+### Key Features:
+- **Activity Timeline**
+  - Scan history with images
+  - Medicine additions/updates
+  - Reminder notifications
+  - AI chat sessions
+
+- **Reminder Management**
+  - Upcoming reminders
+  - Reminder history
+  - Snooze/acknowledge options
+  - Reminder settings
+
+- **Usage Analytics**
+  - Medicine consumption tracking
+  - Scanning frequency
+  - Most scanned medicines
+  - Cost tracking (optional)
+
+- **Export & Backup**
+  - Export medicine list
+  - Backup scan data
+  - Share with healthcare providers
+  - Print medication list
+
+### Database Tables Used:
+- `user_activities` (all user actions)
+- `reminders` (notification history)
+- `scans` (scanning records)
+- `medicines` (usage tracking)
+- `chat_messages` (AI interaction history)
+
+---
+
+## 6. 👤 PROFILE TAB (`app/(tabs)/profile.tsx`)
+
+**Primary Purpose**: User settings, health profile, and app preferences
+
+### Key Features:
+- **Health Profile**
+  - Personal health information
+  - Known allergies
+  - Chronic conditions
+  - Current medications
+  - Emergency contacts
+
+- **App Preferences**
+  - Notification settings
+  - Reminder preferences
+  - Language settings
+  - Date/time format
+  - Privacy controls
+
+- **Account Management**
+  - Profile information
+  - Data sharing preferences
+  - Privacy settings
+  - Account security
+
+- **App Settings**
+  - Theme preferences
+  - Storage management
+  - Data export
+  - Feedback & support
+
+### Database Tables Used:
+- `users` (profile & preferences)
+- `user_health_profiles` (health information)
+- `user_feedback` (support requests)
+- `user_activities` (usage analytics)
+
+---
+
+## Navigation Flow Examples:
+
+### Critical Medicine Expiry Flow:
+1. **Home Tab** → Shows "3 medicines expiring in 2 days" alert
+2. **Medicines Tab** → Auto-filtered to show expiring medicines
+3. **Individual Medicine** → Option to set new reminder or mark as replaced
+
+### New Medicine Registration Flow:
+1. **Scan Tab** → Camera captures medicine box
+2. **Confirmation Screen** → Edit OCR results
+3. **Medicine Details** → Add personal notes, set reminders
+4. **Success** → Medicine added to inventory
+5. **Home Tab** → Shows updated count
+
+### Health Consultation Flow:
+1. **Assistant Tab** → "I have a headache for 2 days"
+2. **AI Response** → Suggests possible causes, OTC options
+3. **Follow-up** → "Should I take ibuprofen?"
+4. **Medicine Check** → AI checks user's medicine inventory
+5. **Recommendation** → Personalized advice based on user's health profile
+
+### Medicine Sharing Flow:
+1. **Medicines Tab** → Select unused medicine
+2. **Donation Option** → Create donation listing
+3. **Community** → Other users can see and request
+4. **History Tab** → Track donation status
+
+---
+
