@@ -28,7 +28,7 @@ export default function TabLayout() {
       }}
     >
       <Tabs.Screen
-        name="Home" 
+        name="Home"
         options={{
           tabBarIcon: ({ color, size }) => (
             <MapPinHouse size={size} color={color} />
