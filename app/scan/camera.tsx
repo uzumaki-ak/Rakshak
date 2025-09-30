@@ -1,5 +1,6 @@
 import { useUser } from "@clerk/clerk-expo";
 import { Ionicons } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useState } from "react";
 import {
@@ -13,12 +14,11 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { useCamera } from "@/hooks/scan-hook/useCamera";
 import { useScanning } from "@/hooks/scan-hook/useScanning";
 
 /**
  * Camera Screen for capturing medicine images
- * Supports both camera capture and gallery selection
+ * Supports both camera capture and gallery selection with REAL OCR processing
  */
 export default function CameraScreen() {
   const { mode } = useLocalSearchParams<{ mode?: string }>();
@@ -27,12 +27,37 @@ export default function CameraScreen() {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
 
-  const { takePhoto, pickImage, permissions } = useCamera();
   const { processImageScan, isProcessing, processingStep } = useScanning(
     user?.id
   );
 
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const [permissionStatus, setPermissionStatus] = useState<
+    "checking" | "granted" | "denied"
+  >("checking");
+
+  /**
+   * Check and request permissions
+   */
+  React.useEffect(() => {
+    checkPermissions();
+  }, [mode]);
+
+  const checkPermissions = async () => {
+    try {
+      if (mode === "gallery") {
+        const { status } =
+          await ImagePicker.requestMediaLibraryPermissionsAsync();
+        setPermissionStatus(status === "granted" ? "granted" : "denied");
+      } else {
+        const { status } = await ImagePicker.requestCameraPermissionsAsync();
+        setPermissionStatus(status === "granted" ? "granted" : "denied");
+      }
+    } catch (error) {
+      console.error("Permission check error:", error);
+      setPermissionStatus("denied");
+    }
+  };
 
   /**
    * Handle image capture or selection
@@ -42,100 +67,116 @@ export default function CameraScreen() {
       let result;
 
       if (mode === "gallery") {
-        result = await pickImage();
+        result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ["images"],
+          allowsEditing: true,
+          aspect: [4, 3],
+          quality: 0.8,
+        });
       } else {
-        result = await takePhoto();
+        result = await ImagePicker.launchCameraAsync({
+          mediaTypes: ["images"],
+          allowsEditing: true,
+          aspect: [4, 3],
+          quality: 0.8,
+        });
       }
 
-      if (result.cancelled || !result.uri) {
+      if (result.canceled || !result.assets || result.assets.length === 0) {
+        router.back();
         return;
       }
 
-      setCapturedImage(result.uri);
+      const imageUri = result.assets[0].uri;
+      setCapturedImage(imageUri);
 
-      // Process the image with OCR
-      Alert.alert(
-        "Process Image",
-        "Would you like to process this image now?",
-        [
-          {
-            text: "Cancel",
-            style: "cancel",
-            onPress: () => setCapturedImage(null),
-          },
-          {
-            text: "Process",
-            onPress: () => processImage(result.uri),
-          },
-        ]
-      );
+      // Immediately process the image with REAL OCR
+      await processImage(imageUri);
     } catch (error) {
       console.error("Capture error:", error);
       Alert.alert(
         "Error",
-        error instanceof Error ? error.message : "Failed to capture image"
+        error instanceof Error ? error.message : "Failed to capture image",
+        [
+          { text: "Retry", onPress: handleCapture },
+          { text: "Cancel", onPress: () => router.back() },
+        ]
       );
     }
   };
 
   /**
-   * Process captured image with OCR
+   * Process captured image with REAL OCR
    */
   const processImage = async (imageUri: string) => {
     try {
+      console.log("Starting REAL OCR processing for:", imageUri);
+
       const result = await processImageScan(imageUri, "ocr_text");
 
       if (!result.success) {
         Alert.alert(
           "Processing Failed",
-          result.error || "Failed to process image",
+          result.error ||
+            "Failed to process image. The image may not contain readable text.",
           [
-            { text: "Retry", onPress: () => processImage(imageUri) },
+            { text: "Retry", onPress: () => handleCapture() },
+            {
+              text: "Enter Manually",
+              onPress: () => router.replace("/scan/manual-entry" as any),
+            },
             { text: "Cancel", onPress: () => router.back() },
           ]
         );
         return;
       }
 
+      console.log("OCR Success! Parsed data:", result.parsedData);
+
       // Navigate to OCR results screen for confirmation
       if (result.scanResult) {
         router.replace(
           `/scan/ocr-results?scanId=${result.scanResult.id}` as any
         );
+      } else {
+        throw new Error("Scan result not created");
       }
     } catch (error) {
       console.error("Processing error:", error);
-      Alert.alert("Error", "An unexpected error occurred");
+      Alert.alert(
+        "Error",
+        "An unexpected error occurred while processing the image.",
+        [
+          { text: "Retry", onPress: () => handleCapture() },
+          { text: "Cancel", onPress: () => router.back() },
+        ]
+      );
     }
   };
 
   /**
-   * Check permissions before capturing
+   * Auto-trigger capture when screen loads and permission is granted
    */
   React.useEffect(() => {
-    const checkAndCapture = async () => {
-      if (mode === "gallery" && !permissions.mediaLibrary) {
-        Alert.alert("Permission Required", "Photo library access is required", [
+    if (permissionStatus === "granted") {
+      // Small delay to ensure UI is ready
+      const timer = setTimeout(() => {
+        handleCapture();
+      }, 100);
+      return () => clearTimeout(timer);
+    } else if (permissionStatus === "denied") {
+      Alert.alert(
+        "Permission Required",
+        mode === "gallery"
+          ? "Photo library access is required to select images."
+          : "Camera access is required to take photos.",
+        [
           { text: "Cancel", onPress: () => router.back() },
-          { text: "OK" },
-        ]);
-        return;
-      }
-
-      if (mode !== "gallery" && !permissions.camera) {
-        Alert.alert("Permission Required", "Camera access is required", [
-          { text: "Cancel", onPress: () => router.back() },
-          { text: "OK" },
-        ]);
-        return;
-      }
-
-      // Auto-trigger capture when screen loads
-      handleCapture();
-    };
-
-    checkAndCapture();
-  }, []);
+          { text: "Grant Permission", onPress: checkPermissions },
+        ]
+      );
+    }
+  }, [permissionStatus]);
 
   if (isProcessing) {
     return (
@@ -164,7 +205,7 @@ export default function CameraScreen() {
               { color: isDark ? "#8E8E93" : "#636366" },
             ]}
           >
-            {processingStep}
+            {processingStep || "Analyzing medicine packaging..."}
           </Text>
 
           {/* Processing steps indicator */}
@@ -179,7 +220,7 @@ export default function CameraScreen() {
             <View
               style={[
                 styles.stepLine,
-                { backgroundColor: isDark ? "#3A3A3C" : "#E5E5E7" },
+                { backgroundColor: isDark ? "#0A84FF" : "#007AFF" },
               ]}
             />
             <View
@@ -202,6 +243,41 @@ export default function CameraScreen() {
               ]}
             />
           </View>
+
+          <Text
+            style={[
+              styles.processingNote,
+              { color: isDark ? "#636366" : "#8E8E93" },
+            ]}
+          >
+            Using Google ML Kit & Gemini AI
+          </Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (permissionStatus === "checking") {
+    return (
+      <SafeAreaView
+        style={[
+          styles.container,
+          { backgroundColor: isDark ? "#000000" : "#F8F9FA" },
+        ]}
+      >
+        <View style={styles.processingContainer}>
+          <ActivityIndicator
+            size="large"
+            color={isDark ? "#0A84FF" : "#007AFF"}
+          />
+          <Text
+            style={[
+              styles.processingTitle,
+              { color: isDark ? "#FFFFFF" : "#1D1D1F" },
+            ]}
+          >
+            Checking permissions...
+          </Text>
         </View>
       </SafeAreaView>
     );
@@ -262,8 +338,8 @@ export default function CameraScreen() {
             ]}
           >
             {mode === "gallery"
-              ? "Choose a clear image of the medicine packaging from your gallery"
-              : "Position the medicine packaging in good lighting and take a clear photo"}
+              ? "Choose a clear image of the medicine packaging. Our AI will extract medicine details automatically."
+              : "Position the medicine packaging in good lighting. Our AI will read the text automatically."}
           </Text>
         </View>
 
@@ -290,19 +366,40 @@ export default function CameraScreen() {
             />
             <TipItem
               icon="checkmark-circle"
-              text="Keep camera steady"
+              text="Keep camera steady and focused"
               isDark={isDark}
             />
             <TipItem
               icon="checkmark-circle"
-              text="Focus on expiry date and name"
+              text="Capture expiry date and medicine name clearly"
               isDark={isDark}
             />
             <TipItem
               icon="checkmark-circle"
-              text="Avoid shadows and glare"
+              text="Avoid shadows, glare, and blurry images"
               isDark={isDark}
             />
+          </View>
+
+          <View
+            style={[
+              styles.aiNote,
+              { backgroundColor: isDark ? "#0A84FF20" : "#007AFF20" },
+            ]}
+          >
+            <Ionicons
+              name="sparkles"
+              size={16}
+              color={isDark ? "#0A84FF" : "#007AFF"}
+            />
+            <Text
+              style={[
+                styles.aiNoteText,
+                { color: isDark ? "#0A84FF" : "#007AFF" },
+              ]}
+            >
+              Powered by Google ML Kit & Gemini AI
+            </Text>
           </View>
         </View>
 
@@ -415,6 +512,7 @@ const styles = StyleSheet.create({
   },
   tipsList: {
     gap: 12,
+    marginBottom: 16,
   },
   tipItem: {
     flexDirection: "row",
@@ -426,6 +524,19 @@ const styles = StyleSheet.create({
   tipText: {
     fontSize: 16,
     flex: 1,
+  },
+  aiNote: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    gap: 8,
+  },
+  aiNoteText: {
+    fontSize: 14,
+    fontWeight: "600",
   },
   captureButton: {
     flexDirection: "row",
@@ -461,6 +572,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     textAlign: "center",
     marginBottom: 40,
+  },
+  processingNote: {
+    fontSize: 14,
+    textAlign: "center",
+    marginTop: 20,
   },
   stepsContainer: {
     flexDirection: "row",

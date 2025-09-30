@@ -2,7 +2,7 @@ import { useUser } from "@clerk/clerk-expo";
 import { Ionicons } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { useRouter } from "expo-router";
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import {
   Alert,
   Dimensions,
@@ -33,16 +33,7 @@ export default function BarcodeScannerScreen() {
 
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
-  const [flashOn, setFlashOn] = useState(false);
-
-  /**
-   * Request camera permissions if not already granted
-   */
-  useEffect(() => {
-    if (permission && !permission.granted) {
-      requestPermission();
-    }
-  }, [permission]);
+  const [torchOn, setTorchOn] = useState(false);
 
   /**
    * Handle barcode scan
@@ -70,8 +61,7 @@ export default function BarcodeScannerScreen() {
             { text: "Cancel", onPress: () => router.back() },
             {
               text: "Add Manually",
-              onPress: () =>
-                router.push(`/scan/manual-entry?barcode=${data}` as any),
+              onPress: () => router.push(`/scan/manual-entry?barcode=${data}`),
             },
           ]
         );
@@ -80,7 +70,7 @@ export default function BarcodeScannerScreen() {
 
       // Navigate to manual entry with barcode data
       router.replace(
-        `/scan/manual-entry?scanId=${result.scanResult?.id}&barcode=${data}` as any
+        `/scan/manual-entry?scanId=${result.scanResult?.id}&barcode=${data}`
       );
     } catch (error) {
       console.error("Barcode processing error:", error);
@@ -92,8 +82,8 @@ export default function BarcodeScannerScreen() {
   /**
    * Toggle flashlight/torch
    */
-  const toggleFlash = () => {
-    setFlashOn(!flashOn);
+  const toggleTorch = () => {
+    setTorchOn(!torchOn);
   };
 
   /**
@@ -159,7 +149,7 @@ export default function BarcodeScannerScreen() {
 
         <View style={styles.centerContainer}>
           <Ionicons
-            name="camera-outline"
+            name="camera"
             size={64}
             color={isDark ? "#636366" : "#8E8E93"}
           />
@@ -177,14 +167,16 @@ export default function BarcodeScannerScreen() {
               { color: isDark ? "#8E8E93" : "#636366" },
             ]}
           >
-            Please grant camera permission in Settings to use the barcode
-            scanner.
+            Please grant camera permission to use the barcode scanner.
           </Text>
           <TouchableOpacity
-            style={[styles.manualButton, { marginTop: 20 }]}
+            style={[
+              styles.permissionButton,
+              { backgroundColor: isDark ? "#0A84FF" : "#007AFF" },
+            ]}
             onPress={requestPermission}
           >
-            <Text style={styles.manualButtonText}>Grant Permission</Text>
+            <Text style={styles.permissionButtonText}>Grant Permission</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -193,12 +185,12 @@ export default function BarcodeScannerScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Camera view */}
+      {/* Camera view using expo-camera */}
       <CameraView
+        onBarcodeScanned={scanned ? undefined : handleBarCodeScanned}
         style={StyleSheet.absoluteFillObject}
         facing="back"
-        flash={flashOn ? "on" : "off"}
-        onBarcodeScanned={scanned ? undefined : handleBarCodeScanned}
+        enableTorch={torchOn}
         barcodeScannerSettings={{
           barcodeTypes: [
             "ean13",
@@ -210,65 +202,67 @@ export default function BarcodeScannerScreen() {
             "qr",
           ],
         }}
-      />
-
-      {/* Overlay */}
-      <SafeAreaView style={styles.overlay}>
-        {/* Header */}
-        <View
-          style={[styles.header, { backgroundColor: "rgba(0, 0, 0, 0.5)" }]}
-        >
-          <TouchableOpacity
-            onPress={() => router.back()}
-            style={styles.backButton}
+      >
+        {/* Overlay */}
+        <SafeAreaView style={styles.overlay}>
+          {/* Header */}
+          <View
+            style={[styles.header, { backgroundColor: "rgba(0, 0, 0, 0.5)" }]}
           >
-            <Ionicons name="close" size={24} color="#FFFFFF" />
-          </TouchableOpacity>
-          <Text style={[styles.title, { color: "#FFFFFF" }]}>Scan Barcode</Text>
-          <TouchableOpacity onPress={toggleFlash} style={styles.torchButton}>
-            <Ionicons
-              name={flashOn ? "flash" : "flash-off"}
-              size={24}
-              color="#FFFFFF"
-            />
-          </TouchableOpacity>
-        </View>
-
-        {/* Scan area */}
-        <View style={styles.scanAreaContainer}>
-          <View style={styles.scanAreaWrapper}>
-            {/* Scan frame corners */}
-            <View style={[styles.corner, styles.cornerTopLeft]} />
-            <View style={[styles.corner, styles.cornerTopRight]} />
-            <View style={[styles.corner, styles.cornerBottomLeft]} />
-            <View style={[styles.corner, styles.cornerBottomRight]} />
-
-            {/* Scan line animation would go here */}
-            <View style={styles.scanLine} />
+            <TouchableOpacity
+              onPress={() => router.back()}
+              style={styles.backButton}
+            >
+              <Ionicons name="close" size={24} color="#FFFFFF" />
+            </TouchableOpacity>
+            <Text style={[styles.title, { color: "#FFFFFF" }]}>
+              Scan Barcode
+            </Text>
+            <TouchableOpacity onPress={toggleTorch} style={styles.torchButton}>
+              <Ionicons
+                name={torchOn ? "flash" : "flash-off"}
+                size={24}
+                color="#FFFFFF"
+              />
+            </TouchableOpacity>
           </View>
 
-          <Text style={styles.instructionText}>
-            Position barcode within the frame
-          </Text>
-        </View>
+          {/* Scan area */}
+          <View style={styles.scanAreaContainer}>
+            <View style={styles.scanAreaWrapper}>
+              {/* Scan frame corners */}
+              <View style={[styles.corner, styles.cornerTopLeft]} />
+              <View style={[styles.corner, styles.cornerTopRight]} />
+              <View style={[styles.corner, styles.cornerBottomLeft]} />
+              <View style={[styles.corner, styles.cornerBottomRight]} />
 
-        {/* Bottom controls */}
-        <View style={styles.bottomControls}>
-          {scanned && (
-            <TouchableOpacity style={styles.rescanButton} onPress={resetScan}>
-              <Ionicons name="refresh" size={24} color="#FFFFFF" />
-              <Text style={styles.rescanButtonText}>Scan Again</Text>
+              {/* Scan line animation would go here */}
+              <View style={styles.scanLine} />
+            </View>
+
+            <Text style={styles.instructionText}>
+              Position barcode within the frame
+            </Text>
+          </View>
+
+          {/* Bottom controls */}
+          <View style={styles.bottomControls}>
+            {scanned && (
+              <TouchableOpacity style={styles.rescanButton} onPress={resetScan}>
+                <Ionicons name="refresh" size={24} color="#FFFFFF" />
+                <Text style={styles.rescanButtonText}>Scan Again</Text>
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity
+              style={styles.manualButton}
+              onPress={() => router.push("/scan/manual-entry")}
+            >
+              <Text style={styles.manualButtonText}>Enter Manually</Text>
             </TouchableOpacity>
-          )}
-
-          <TouchableOpacity
-            style={styles.manualButton}
-            onPress={() => router.push("/scan/manual-entry" as any)}
-          >
-            <Text style={styles.manualButtonText}>Enter Manually</Text>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
+          </View>
+        </SafeAreaView>
+      </CameraView>
     </View>
   );
 }
@@ -412,5 +406,16 @@ const styles = StyleSheet.create({
     fontSize: 16,
     textAlign: "center",
     lineHeight: 24,
+  },
+  permissionButton: {
+    marginTop: 20,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  permissionButtonText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "600",
   },
 });

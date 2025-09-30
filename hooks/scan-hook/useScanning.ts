@@ -5,8 +5,8 @@ import { useCallback, useState } from 'react';
 import { Alert } from 'react-native';
 
 /**
- * Custom hook for scanning operations
- * Handles OCR processing, scan creation, and state management
+ * Custom hook for REAL scanning operations
+ * Handles OCR processing with Google ML Kit & Gemini AI, scan creation, and state management
  */
 export const useScanning = (clerkUserId: string | undefined) => {
   const [isProcessing, setIsProcessing] = useState(false);
@@ -19,7 +19,7 @@ export const useScanning = (clerkUserId: string | undefined) => {
   const scanService = SupabaseScanService.getInstance();
 
   /**
-   * Process image with OCR and create scan record
+   * Process image with REAL OCR (Google ML Kit + Gemini AI) and create scan record
    */
   const processImageScan = useCallback(async (
     imageUri: string,
@@ -34,24 +34,31 @@ export const useScanning = (clerkUserId: string | undefined) => {
       return { success: false, error: 'User not authenticated' };
     }
 
+    let scanRecord: ScanResult | null = null;
+
     try {
       setIsProcessing(true);
       setProcessingStep('Creating scan record...');
 
       // Create initial scan record with pending status
-      const scanRecord = await scanService.createScan(clerkUserId, {
+      scanRecord = await scanService.createScan(clerkUserId, {
         scan_type: scanType,
         image_path: imageUri,
         processing_status: 'processing'
       });
 
       setCurrentScan(scanRecord);
-      setProcessingStep('Processing image...');
+      
+      // Step 1: Extract text using Google ML Kit
+      setProcessingStep('Extracting text with Google ML Kit...');
+      console.log('Starting OCR text extraction...');
 
-      // Process image with OCR
+      // Step 2: Process image with REAL OCR service
       const ocrResult: OCRProcessingResult = await ocrService.processImage(imageUri);
 
       if (!ocrResult.success) {
+        console.error('OCR processing failed:', ocrResult.error);
+        
         // Update scan with error
         const updatedScan = await scanService.updateScan(scanRecord.id, clerkUserId, {
           processing_status: 'failed',
@@ -61,14 +68,18 @@ export const useScanning = (clerkUserId: string | undefined) => {
         setCurrentScan(updatedScan);
         return { 
           success: false, 
-          error: ocrResult.error || 'Failed to process image',
+          error: ocrResult.error || 'Failed to process image. Please ensure the image is clear and contains readable text.',
           scanResult: updatedScan 
         };
       }
 
-      setProcessingStep('Updating scan results...');
+      console.log('OCR extraction successful!');
+      console.log('Raw text:', ocrResult.raw_text?.substring(0, 100) + '...');
+      console.log('Parsed data:', ocrResult.parsed_data);
 
-      // Update scan record with results
+      setProcessingStep('Parsing medicine information with AI...');
+
+      // Update scan record with OCR results
       const finalScan = await scanService.updateScan(scanRecord.id, clerkUserId, {
         processing_status: 'completed',
         raw_ocr_text: ocrResult.raw_text,
@@ -77,14 +88,17 @@ export const useScanning = (clerkUserId: string | undefined) => {
       });
 
       setCurrentScan(finalScan);
+      console.log('Scan record updated successfully');
 
       // Validate extracted data
       if (ocrResult.parsed_data) {
         const validation = ocrService.validateParsedData(ocrResult.parsed_data);
-        if (!validation.isValid) {
+        if (!validation.isValid && validation.errors.length > 0) {
+          console.warn('Validation warnings:', validation.errors);
           Alert.alert(
-            'Data Validation Warning',
-            `Some extracted data may be incorrect:\n${validation.errors.join('\n')}`
+            'Data Validation',
+            `Please verify the extracted data:\n• ${validation.errors.join('\n• ')}`,
+            [{ text: 'OK' }]
           );
         }
       }
@@ -99,9 +113,9 @@ export const useScanning = (clerkUserId: string | undefined) => {
       console.error('Scan processing error:', error);
       
       // Update scan record with error if we have one
-      if (currentScan) {
+      if (scanRecord) {
         try {
-          await scanService.updateScan(currentScan.id, clerkUserId, {
+          await scanService.updateScan(scanRecord.id, clerkUserId, {
             processing_status: 'failed',
             error_message: error instanceof Error ? error.message : 'Unknown error'
           });
@@ -119,7 +133,7 @@ export const useScanning = (clerkUserId: string | undefined) => {
       setIsProcessing(false);
       setProcessingStep('');
     }
-  }, [clerkUserId, ocrService, scanService, currentScan]);
+  }, [clerkUserId, ocrService, scanService]);
 
   /**
    * Process barcode scan
@@ -139,6 +153,8 @@ export const useScanning = (clerkUserId: string | undefined) => {
       setIsProcessing(true);
       setProcessingStep('Processing barcode...');
 
+      console.log('Processing barcode:', barcodeData);
+
       // Create scan record for barcode
       const scanRecord = await scanService.createScan(clerkUserId, {
         scan_type: 'barcode',
@@ -149,6 +165,7 @@ export const useScanning = (clerkUserId: string | undefined) => {
       });
 
       setCurrentScan(scanRecord);
+      console.log('Barcode scan record created');
 
       return {
         success: true,
@@ -181,6 +198,7 @@ export const useScanning = (clerkUserId: string | undefined) => {
       setLoading(true);
       const result = await scanService.getUserScans(clerkUserId, options);
       setScanHistory(result.scans);
+      console.log(`Loaded ${result.scans.length} scans from history`);
     } catch (error) {
       console.error('Error loading scan history:', error);
       Alert.alert('Error', 'Failed to load scan history');
@@ -206,6 +224,8 @@ export const useScanning = (clerkUserId: string | undefined) => {
         if (currentScan?.id === scanId) {
           setCurrentScan(null);
         }
+
+        console.log('Scan deleted successfully');
       }
       
       return success;
@@ -223,7 +243,9 @@ export const useScanning = (clerkUserId: string | undefined) => {
     if (!clerkUserId) return [];
 
     try {
-      return await scanService.getRecentScans(clerkUserId, limit);
+      const scans = await scanService.getRecentScans(clerkUserId, limit);
+      console.log(`Fetched ${scans.length} recent scans`);
+      return scans;
     } catch (error) {
       console.error('Error getting recent scans:', error);
       return [];
@@ -237,7 +259,9 @@ export const useScanning = (clerkUserId: string | undefined) => {
     if (!clerkUserId) return null;
 
     try {
-      return await scanService.getScanStats(clerkUserId);
+      const stats = await scanService.getScanStats(clerkUserId);
+      console.log('Scan statistics:', stats);
+      return stats;
     } catch (error) {
       console.error('Error getting scan stats:', error);
       return null;
@@ -264,7 +288,8 @@ export const useScanning = (clerkUserId: string | undefined) => {
       if (currentScan?.id === scanId) {
         setCurrentScan(updatedScan);
       }
-      
+
+      console.log('Scan linked to medicine successfully');
       return true;
     } catch (error) {
       console.error('Error linking scan to medicine:', error);
@@ -280,6 +305,7 @@ export const useScanning = (clerkUserId: string | undefined) => {
     setCurrentScan(null);
     setIsProcessing(false);
     setProcessingStep('');
+    console.log('Scan state reset');
   }, []);
 
   /**
