@@ -13,14 +13,17 @@ interface FilterBarProps {
 }
 
 const FILTERS = [
-  { key: 'all', label: 'All' },
-  { key: 'medicine', label: 'Medicine' },
-  { key: 'analysis', label: 'Analysis' },
-  { key: 'assistance', label: 'Assistance' },
-  { key: 'custom', label: 'Custom' },
+  { key: "all", label: "All" },
+  { key: "medicine", label: "Medicine" },
+  { key: "analysis", label: "Analysis" },
+  { key: "assistance", label: "Assistance" },
+  { key: "custom", label: "Custom" },
 ];
 
-export default function FilterBar({ activeFilter, onFilterChange }: FilterBarProps) {
+export default function FilterBar({
+  activeFilter,
+  onFilterChange,
+}: FilterBarProps) {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
   const styles = createStyles(isDark);
@@ -38,15 +41,17 @@ export default function FilterBar({ activeFilter, onFilterChange }: FilterBarPro
             styles.filterButton,
             activeFilter === filter.key && [
               styles.filterButtonActive,
-              { backgroundColor: isDark ? "#2D89FF" : "#007AFF" }
-            ]
+              { backgroundColor: isDark ? "#2D89FF" : "#007AFF" },
+            ],
           ]}
           onPress={() => onFilterChange(filter.key)}
         >
-          <Text style={[
-            styles.filterText,
-            activeFilter === filter.key ? styles.filterTextActive : {}
-          ]}>
+          <Text
+            style={[
+              styles.filterText,
+              activeFilter === filter.key ? styles.filterTextActive : {},
+            ]}
+          >
             {filter.label}
           </Text>
         </TouchableOpacity>
@@ -71,7 +76,7 @@ const createStyles = (isDark: boolean) =>
       borderColor: isDark ? "#38383A" : "#e5e5e5",
     },
     filterButtonActive: {
-      borderColor: 'transparent',
+      borderColor: "transparent",
     },
     filterText: {
       fontSize: 14,

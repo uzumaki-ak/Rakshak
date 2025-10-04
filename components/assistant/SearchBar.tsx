@@ -1,11 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import React from "react";
-import {
-  StyleSheet,
-  TextInput,
-  View,
-  useColorScheme,
-} from "react-native";
+import { StyleSheet, TextInput, View, useColorScheme } from "react-native";
 
 interface SearchBarProps {
   searchQuery: string;
@@ -13,21 +8,26 @@ interface SearchBarProps {
   placeholder?: string;
 }
 
-export default function SearchBar({ 
-  searchQuery, 
-  onSearchChange, 
-  placeholder = "Search..." 
+export default function SearchBar({
+  searchQuery,
+  onSearchChange,
+  placeholder = "Search...",
 }: SearchBarProps) {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
   const styles = createStyles(isDark);
 
   return (
-    <View style={[styles.container, { backgroundColor: isDark ? "#1C1C1E" : "white" }]}>
-      <Ionicons 
-        name="search" 
-        size={20} 
-        color={isDark ? "#8E8E93" : "#666"} 
+    <View
+      style={[
+        styles.container,
+        { backgroundColor: isDark ? "#1C1C1E" : "white" },
+      ]}
+    >
+      <Ionicons
+        name="search"
+        size={20}
+        color={isDark ? "#8E8E93" : "#666"}
         style={styles.searchIcon}
       />
       <TextInput
@@ -39,12 +39,12 @@ export default function SearchBar({
         clearButtonMode="while-editing"
       />
       {searchQuery.length > 0 && (
-        <Ionicons 
-          name="close-circle" 
-          size={20} 
-          color={isDark ? "#8E8E93" : "#666"} 
+        <Ionicons
+          name="close-circle"
+          size={20}
+          color={isDark ? "#8E8E93" : "#666"}
           style={styles.clearIcon}
-          onPress={() => onSearchChange('')}
+          onPress={() => onSearchChange("")}
         />
       )}
     </View>

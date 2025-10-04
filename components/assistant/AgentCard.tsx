@@ -21,23 +21,27 @@ export default function AgentCard({ agent, onPress }: AgentCardProps) {
 
   const getIconColor = (category: string) => {
     switch (category) {
-      case 'medicine':
-        return isDark ? '#FF6B6B' : '#FF3B30';
-      case 'analysis':
-        return isDark ? '#5FD0D8' : '#007AFF';
-      case 'assistance':
-        return isDark ? '#34C759' : '#32D74B';
+      case "medicine":
+        return isDark ? "#FF6B6B" : "#FF3B30";
+      case "analysis":
+        return isDark ? "#5FD0D8" : "#007AFF";
+      case "assistance":
+        return isDark ? "#34C759" : "#32D74B";
       default:
-        return isDark ? '#BA8AFF' : '#5856D6';
+        return isDark ? "#BA8AFF" : "#5856D6";
     }
   };
 
   const getCategoryLabel = (category: string) => {
     switch (category) {
-      case 'medicine': return 'Medicine';
-      case 'analysis': return 'Analysis';
-      case 'assistance': return 'Assistance';
-      default: return 'Custom';
+      case "medicine":
+        return "Medicine";
+      case "analysis":
+        return "Analysis";
+      case "assistance":
+        return "Assistance";
+      default:
+        return "Custom";
     }
   };
 
@@ -47,20 +51,16 @@ export default function AgentCard({ agent, onPress }: AgentCardProps) {
       onPress={onPress}
     >
       <View style={styles.cardHeader}>
-        <View 
+        <View
           style={[
-            styles.iconContainer, 
-            { backgroundColor: getIconColor(agent.category) }
+            styles.iconContainer,
+            { backgroundColor: getIconColor(agent.category) },
           ]}
         >
-          <Ionicons 
-            name={agent.icon as any} 
-            size={20} 
-            color="white" 
-          />
+          <Ionicons name={agent.icon as any} size={20} color="white" />
         </View>
-        
-        {agent.type === 'custom' && (
+
+        {agent.type === "custom" && (
           <View style={styles.customBadge}>
             <Text style={styles.customBadgeText}>Custom</Text>
           </View>
@@ -70,24 +70,31 @@ export default function AgentCard({ agent, onPress }: AgentCardProps) {
       <Text style={styles.agentName} numberOfLines={2}>
         {agent.name}
       </Text>
-      
+
       <Text style={styles.agentDescription} numberOfLines={2}>
         {agent.description}
       </Text>
 
       <View style={styles.cardFooter}>
-        <View style={[styles.categoryBadge, { 
-          backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)' 
-        }]}>
+        <View
+          style={[
+            styles.categoryBadge,
+            {
+              backgroundColor: isDark
+                ? "rgba(255,255,255,0.1)"
+                : "rgba(0,0,0,0.05)",
+            },
+          ]}
+        >
           <Text style={styles.categoryText}>
             {getCategoryLabel(agent.category)}
           </Text>
         </View>
-        
-        <Ionicons 
-          name="chevron-forward" 
-          size={16} 
-          color={isDark ? "#8E8E93" : "#666"} 
+
+        <Ionicons
+          name="chevron-forward"
+          size={16}
+          color={isDark ? "#8E8E93" : "#666"}
         />
       </View>
     </TouchableOpacity>
@@ -98,8 +105,8 @@ const createStyles = (isDark: boolean) =>
   StyleSheet.create({
     card: {
       flex: 1,
-      minWidth: '48%',
-      maxWidth: '48%',
+      minWidth: "48%",
+      maxWidth: "48%",
       padding: 16,
       borderRadius: 12,
       marginBottom: 12,
@@ -123,15 +130,15 @@ const createStyles = (isDark: boolean) =>
       alignItems: "center",
     },
     customBadge: {
-      backgroundColor: isDark ? '#BA8AFF' : '#5856D6',
+      backgroundColor: isDark ? "#BA8AFF" : "#5856D6",
       paddingHorizontal: 6,
       paddingVertical: 2,
       borderRadius: 8,
     },
     customBadgeText: {
-      color: 'white',
+      color: "white",
       fontSize: 10,
-      fontWeight: '600',
+      fontWeight: "600",
     },
     agentName: {
       fontSize: 16,

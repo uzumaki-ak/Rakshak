@@ -75,7 +75,6 @@ export default function CreateAgentScreen() {
     setLoading(true);
 
     try {
-      // Get user UUID
       const { data: userData, error: userError } = await supabase
         .from("users")
         .select("id")
@@ -88,8 +87,25 @@ export default function CreateAgentScreen() {
         return;
       }
 
-      // In a real implementation, we would save to a user_agents table
-      // For now, we'll simulate creation and navigate back
+      const { data, error } = await supabase
+        .from("user_agents")
+        .insert([
+          {
+            user_id: userData.id,
+            name: formData.name.trim(),
+            description: formData.description.trim(),
+            category: formData.category,
+            system_prompt: formData.instructions.trim(),
+            input_type: formData.input_type,
+            output_type: formData.output_type,
+            icon: "build",
+            is_active: true,
+          },
+        ])
+        .select()
+        .single();
+
+      if (error) throw error;
 
       Alert.alert("Success", "AI Agent created successfully!", [
         {
@@ -105,23 +121,12 @@ export default function CreateAgentScreen() {
     }
   };
 
-  const getCategoryIcon = (category: string) => {
-    const cat = CATEGORIES.find((c) => c.key === category);
-    return cat?.icon || "build";
-  };
-
-  const getInputTypeIcon = (type: string) => {
-    const inputType = INPUT_TYPES.find((t) => t.key === type);
-    return inputType?.icon || "text";
-  };
-
   return (
     <SafeAreaView style={styles.safeArea}>
       <KeyboardAvoidingView
         style={styles.container}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
-        {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity
             onPress={() => router.back()}
@@ -146,7 +151,6 @@ export default function CreateAgentScreen() {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          {/* Basic Information */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Basic Information</Text>
 
@@ -177,7 +181,6 @@ export default function CreateAgentScreen() {
             </View>
           </View>
 
-          {/* Configuration */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Configuration</Text>
 
@@ -261,7 +264,6 @@ export default function CreateAgentScreen() {
             </View>
           </View>
 
-          {/* Instructions */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Instructions *</Text>
             <Text style={styles.sectionSubtitle}>
@@ -282,7 +284,6 @@ export default function CreateAgentScreen() {
             </View>
           </View>
 
-          {/* Add bottom padding */}
           <View style={{ height: 50 }} />
         </ScrollView>
       </KeyboardAvoidingView>
@@ -392,7 +393,6 @@ const createStyles = (isDark: boolean) =>
       borderColor: isDark ? "#38383A" : "#e5e5e5",
     },
     horizontalOption: {
-      flex: 1,
       minWidth: 100,
     },
     optionButtonActive: {

@@ -6,7 +6,6 @@ import * as ImagePicker from "expo-image-picker";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as Speech from "expo-speech";
 import React, { useEffect, useMemo, useRef, useState } from "react";
-
 import {
   ActivityIndicator,
   Alert,
@@ -41,7 +40,6 @@ export default function ChatSessionScreen() {
   const [speaking, setSpeaking] = useState(false);
   const [uploading, setUploading] = useState(false);
 
-  // Fetch session and messages
   const fetchSessionData = async () => {
     if (!user || !sessionId) return;
 
@@ -54,7 +52,6 @@ export default function ChatSessionScreen() {
 
       if (!userData) return;
 
-      // Fetch session
       const { data: sessionData, error: sessionError } = await supabase
         .from("ai_chat_sessions")
         .select("*")
@@ -65,7 +62,6 @@ export default function ChatSessionScreen() {
       if (sessionError) throw sessionError;
       setSession(sessionData);
 
-      // Fetch messages
       const { data: messagesData, error: messagesError } = await supabase
         .from("chat_messages")
         .select("*")
@@ -86,7 +82,6 @@ export default function ChatSessionScreen() {
     fetchSessionData();
   }, [sessionId, user]);
 
-  // Scroll to bottom when new messages arrive
   useEffect(() => {
     if (messages.length > 0) {
       setTimeout(() => {
@@ -94,6 +89,147 @@ export default function ChatSessionScreen() {
       }, 100);
     }
   }, [messages]);
+
+  const uploadImageToCloudinary = async (uri: string): Promise<string> => {
+    const cloudName = process.env.EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME;
+    const uploadPreset = process.env.EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET;
+
+    if (!cloudName || !uploadPreset) {
+      throw new Error("Cloudinary credentials not configured");
+    }
+
+    const formData = new FormData();
+    formData.append("file", {
+      uri,
+      type: "image/jpeg",
+      name: `chat-${Date.now()}.jpg`,
+    } as any);
+    formData.append("upload_preset", uploadPreset);
+
+    const response = await fetch(
+      `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
+      {
+        method: "POST",
+        body: formData,
+      }
+    );
+
+    if (!response.ok) throw new Error("Cloudinary upload failed");
+    const data = await response.json();
+    return data.secure_url;
+  };
+
+  const uploadImageToImageKit = async (uri: string): Promise<string> => {
+    const publicKey = process.env.EXPO_PUBLIC_IMAGEKIT_PUBLIC_KEY;
+    const urlEndpoint = process.env.EXPO_PUBLIC_IMAGEKIT_URL_ENDPOINT;
+
+    if (!publicKey || !urlEndpoint) {
+      throw new Error("ImageKit credentials not configured");
+    }
+
+    const response = await fetch(uri);
+    const blob = await response.blob();
+    const base64 = await new Promise<string>((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.readAsDataURL(blob);
+    });
+
+    const uploadResponse = await fetch(
+      "https://upload.imagekit.io/api/v1/files/upload",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          file: base64,
+          fileName: `chat-${Date.now()}.jpg`,
+          publicKey: publicKey,
+        }),
+      }
+    );
+
+    if (!uploadResponse.ok) throw new Error("ImageKit upload failed");
+    const data = await uploadResponse.json();
+    return data.url;
+  };
+
+  const uploadImageToSupabase = async (uri: string): Promise<string> => {
+    const response = await fetch(uri);
+    const blob = await response.blob();
+    const fileName = `chat-${session?.id}-${Date.now()}.jpg`;
+
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from("rakshak")
+      .upload(fileName, blob, {
+        contentType: "image/jpeg",
+      });
+
+    if (uploadError) throw uploadError;
+
+    const {
+      data: { publicUrl },
+    } = supabase.storage.from("rakshak").getPublicUrl(fileName);
+
+    return publicUrl;
+  };
+
+  const uploadImage = async (uri: string): Promise<string> => {
+    // Try Cloudinary first
+    try {
+      return await uploadImageToCloudinary(uri);
+    } catch (cloudinaryError) {
+      console.log("Cloudinary failed, trying ImageKit:", cloudinaryError);
+
+      // Try ImageKit as fallback
+      try {
+        return await uploadImageToImageKit(uri);
+      } catch (imagekitError) {
+        console.log("ImageKit failed, trying Supabase:", imagekitError);
+
+        // Final fallback to Supabase
+        return await uploadImageToSupabase(uri);
+      }
+    }
+  };
+
+  const pickImage = async () => {
+    try {
+      const { status } =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert(
+          "Permission required",
+          "We need access to your photos to upload images."
+        );
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.8,
+      });
+
+      if (!result.canceled) {
+        setUploading(true);
+        try {
+          const uploadedUrl = await uploadImage(result.assets[0].uri);
+          await sendMessage("I uploaded this image:", [uploadedUrl]);
+        } catch (error) {
+          console.error("Error uploading image:", error);
+          Alert.alert("Error", "Failed to upload image");
+        } finally {
+          setUploading(false);
+        }
+      }
+    } catch (error) {
+      console.error("Error picking image:", error);
+      Alert.alert("Error", "Failed to pick image");
+    }
+  };
 
   const sendMessage = async (content?: string, attachments?: string[]) => {
     const messageContent = content || newMessage;
@@ -118,7 +254,6 @@ export default function ChatSessionScreen() {
     setSending(true);
 
     try {
-      // Save user message to database
       const { data: savedMessage, error: messageError } = await supabase
         .from("chat_messages")
         .insert([userMessage])
@@ -127,17 +262,12 @@ export default function ChatSessionScreen() {
 
       if (messageError) throw messageError;
 
-      // Update messages with saved message (to get real ID)
       setMessages((prev) =>
-        prev.map((msg) =>
-          msg.id === `temp-${Date.now()}` ? savedMessage : msg
-        )
+        prev.map((msg) => (msg.id.startsWith("temp-") ? savedMessage : msg))
       );
 
-      // Call AI service based on session type
       await callAIService(savedMessage);
 
-      // Update session last message time
       await supabase
         .from("ai_chat_sessions")
         .update({ last_message_at: new Date().toISOString() })
@@ -151,7 +281,6 @@ export default function ChatSessionScreen() {
   };
 
   const callAIService = async (userMessage: ChatMessage) => {
-    // Create temporary AI message
     const tempAiMessage: Omit<ChatMessage, "id"> = {
       session_id: session!.id,
       sender: "assistant",
@@ -161,23 +290,19 @@ export default function ChatSessionScreen() {
       created_at: new Date().toISOString(),
     };
 
+    const tempId = `temp-ai-${Date.now()}`;
     setMessages((prev) => [
       ...prev,
-      { ...tempAiMessage, id: `temp-ai-${Date.now()}` } as ChatMessage,
+      { ...tempAiMessage, id: tempId } as ChatMessage,
     ]);
 
     try {
-      // Prepare context based on session type
-      const context = {
+      const aiResponse = await generateAIResponse({
         session_type: session?.session_type,
-        previous_messages: messages.slice(-10), // Last 10 messages for context
+        previous_messages: messages.slice(-10),
         user_message: userMessage,
-      };
+      });
 
-      // Call your AI service (this is a placeholder - implement based on your AI provider)
-      const aiResponse = await generateAIResponse(context);
-
-      // Save AI response to database
       const { data: savedAiMessage, error: aiError } = await supabase
         .from("chat_messages")
         .insert([
@@ -193,18 +318,14 @@ export default function ChatSessionScreen() {
 
       if (aiError) throw aiError;
 
-      // Update messages with real AI message
       setMessages((prev) =>
-        prev.map((msg) =>
-          msg.id === `temp-ai-${Date.now()}` ? savedAiMessage : msg
-        )
+        prev.map((msg) => (msg.id === tempId ? savedAiMessage : msg))
       );
     } catch (error) {
       console.error("Error calling AI service:", error);
-      // Update with error message
       setMessages((prev) =>
         prev.map((msg) =>
-          msg.id === `temp-ai-${Date.now()}`
+          msg.id === tempId
             ? {
                 ...msg,
                 content: "Sorry, I encountered an error. Please try again.",
@@ -215,7 +336,6 @@ export default function ChatSessionScreen() {
     }
   };
 
-  // Placeholder for AI response generation
   const generateAIResponse = async (context: any) => {
     try {
       const apiKey = process.env.EXPO_PUBLIC_EURI_API_KEY;
@@ -223,19 +343,15 @@ export default function ChatSessionScreen() {
         throw new Error("Euron API key not configured");
       }
 
-      // Prepare messages for the API
       const messages = [
-        // System message based on agent type
         {
           role: "system",
           content: getSystemPrompt(context.session_type),
         },
-        // Previous messages for context (last 5 messages)
         ...context.previous_messages.slice(-5).map((msg: any) => ({
           role: msg.sender === "user" ? "user" : "assistant",
           content: msg.content,
         })),
-        // Current user message
         {
           role: "user",
           content: context.user_message.content,
@@ -270,7 +386,7 @@ export default function ChatSessionScreen() {
           data.choices[0]?.message?.content ||
           "I apologize, but I couldn't generate a response.",
         model_used: data.model || "gpt-4.1-nano",
-        confidence_score: 0.9, // You might get this from the API if available
+        confidence_score: 0.9,
       };
     } catch (error) {
       console.error("Error calling Euron AI API:", error);
@@ -278,10 +394,15 @@ export default function ChatSessionScreen() {
     }
   };
 
-  // Helper function to get system prompts based on agent type
   const getSystemPrompt = (sessionType: string) => {
+    // Check if there's a custom system prompt in context_data
+    if (session?.context_data && session.context_data.system_prompt) {
+      return session.context_data.system_prompt;
+    }
+
+    // Otherwise use predefined prompts
     const prompts: { [key: string]: string } = {
-      medicine_teller: `You are a medicine identification expert. Analyze medicine images and provide detailed information including:
+      "medicine-teller": `You are a medicine identification expert. Analyze medicine images and provide detailed information including:
 - Medicine name and generic name
 - Primary uses and indications
 - Typical dosage and administration
@@ -291,7 +412,7 @@ export default function ChatSessionScreen() {
 
 Always include a disclaimer: "This information is for educational purposes only. Consult a healthcare professional for medical advice."`,
 
-      medicine_suggester: `You are a medical assistant that suggests possible over-the-counter medicines based on symptoms. 
+      "medicine-suggester": `You are a medical assistant that suggests possible over-the-counter medicines based on symptoms. 
 Provide:
 - Possible OTC options with reasoning
 - Home remedies and self-care tips
@@ -300,7 +421,7 @@ Provide:
 
 IMPORTANT: Always emphasize this is not medical advice and users should consult healthcare professionals.`,
 
-      barcode_inspector: `You are a barcode and medicine verification expert. Provide detailed product information from barcode data including:
+      "barcode-inspector": `You are a barcode and medicine verification expert. Provide detailed product information from barcode data including:
 - Product identification
 - Manufacturer details
 - Active ingredients
@@ -309,7 +430,7 @@ IMPORTANT: Always emphasize this is not medical advice and users should consult 
 
 If barcode is not recognized, ask for the product name and try to identify it.`,
 
-      report_analyzer: `You are a clinical lab analyst. Analyze medical reports and provide:
+      "report-analyzer": `You are a clinical lab analyst. Analyze medical reports and provide:
 - Summary of key findings
 - Identification of abnormal values with reference ranges
 - Clinical significance of abnormalities
@@ -319,6 +440,8 @@ If barcode is not recognized, ask for the product name and try to identify it.`,
 Always state that this is informational and not a substitute for professional medical interpretation.`,
 
       general: `You are a helpful AI assistant specialized in medicine and healthcare. Provide accurate, helpful information while always reminding users to consult healthcare professionals for medical advice.`,
+
+      custom: `You are a helpful AI assistant specialized in medicine and healthcare. Provide accurate, helpful information while always reminding users to consult healthcare professionals for medical advice.`,
     };
 
     return prompts[sessionType] || prompts["general"];
@@ -338,71 +461,6 @@ Always state that this is informational and not a substitute for professional me
       });
     }
   };
-
-  const pickImage = async () => {
-    try {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== "granted") {
-        Alert.alert(
-          "Permission required",
-          "We need access to your photos to upload images."
-        );
-        return;
-      }
-
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [4, 3],
-        quality: 0.8,
-      });
-
-      if (!result.canceled) {
-        await uploadImage(result.assets[0].uri);
-      }
-    } catch (error) {
-      console.error("Error picking image:", error);
-      Alert.alert("Error", "Failed to pick image");
-    }
-  };
-
-  const uploadImage = async (uri: string) => {
-    if (!session) return;
-
-    setUploading(true);
-
-    try {
-      // Fetch the local file URI as a blob
-      const response = await fetch(uri);
-      const blob = await response.blob();
-
-      // Create a filename
-      const fileName = `chat-${session.id}-${Date.now()}.jpg`;
-
-      // Upload the blob directly to Supabase Storage
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from("rak-ai")
-        .upload(fileName, blob, {
-          contentType: "image/jpeg",
-          // optionally: cacheControl, upsert: false
-        });
-
-      if (uploadError) throw uploadError;
-
-      // Get public URL
-      const {
-        data: { publicUrl },
-      } = supabase.storage.from("rak-ai").getPublicUrl(fileName);
-
-      // Send message with image URL
-      await sendMessage("I uploaded this image:", [publicUrl]);
-    } catch (error) {
-      console.error("Error uploading image:", error);
-      Alert.alert("Error", "Failed to upload image");
-    } finally {
-      setUploading(false);
-    }
-  }; // <-- CLOSES uploadImage
 
   const renderMessage = ({ item }: { item: ChatMessage }) => {
     const isUser = item.sender === "user";
@@ -428,7 +486,6 @@ Always state that this is informational and not a substitute for professional me
             isUser ? styles.userBubble : styles.assistantBubble,
           ]}
         >
-          {/* Render attachments if any */}
           {item.attachments &&
             item.attachments.map((attachment, index) => (
               <Image
@@ -496,18 +553,12 @@ Always state that this is informational and not a substitute for professional me
           <Text style={styles.errorText}>Chat session not found</Text>
           <TouchableOpacity
             style={[
-              //@ts-ignore
               styles.backButtonFull,
               { backgroundColor: isDark ? "#2D89FF" : "#007AFF" },
             ]}
             onPress={() => router.back()}
           >
-            <Text
-              //@ts-ignore
-              style={styles.backButtonText}
-            >
-              Go Back
-            </Text>
+            <Text style={styles.backButtonText}>Go Back</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -516,14 +567,16 @@ Always state that this is informational and not a substitute for professional me
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      {/* Header */}
       <View
         style={[
           styles.header,
           { backgroundColor: isDark ? "#1C1C1E" : "white" },
         ]}
       >
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          style={styles.backButton}
+        >
           <Ionicons
             name="arrow-back"
             size={24}
@@ -536,16 +589,11 @@ Always state that this is informational and not a substitute for professional me
             {session.title}
           </Text>
           <Text style={styles.sessionType}>
-            {session.session_type?.replace("_", " ")}
+            {session.session_type?.replace("_", " ").replace("-", " ")}
           </Text>
         </View>
 
-        <TouchableOpacity
-          onPress={() => {
-            // Handle menu options
-          }}
-          style={styles.menuButton}
-        >
+        <TouchableOpacity onPress={() => {}} style={styles.menuButton}>
           <Ionicons
             name="ellipsis-vertical"
             size={20}
@@ -554,7 +602,6 @@ Always state that this is informational and not a substitute for professional me
         </TouchableOpacity>
       </View>
 
-      {/* Messages List */}
       <FlatList
         ref={flatListRef}
         data={messages}
@@ -578,7 +625,6 @@ Always state that this is informational and not a substitute for professional me
         }
       />
 
-      {/* Input Area */}
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={[
@@ -592,9 +638,16 @@ Always state that this is informational and not a substitute for professional me
           disabled={uploading}
         >
           {uploading ? (
-            <ActivityIndicator size="small" color={isDark ? "#8E8E93" : "#666"} />
+            <ActivityIndicator
+              size="small"
+              color={isDark ? "#8E8E93" : "#666"}
+            />
           ) : (
-            <Ionicons name="image" size={24} color={isDark ? "#8E8E93" : "#666"} />
+            <Ionicons
+              name="image"
+              size={24}
+              color={isDark ? "#8E8E93" : "#666"}
+            />
           )}
         </TouchableOpacity>
 
@@ -628,7 +681,11 @@ Always state that this is informational and not a substitute for professional me
           onPress={() => sendMessage()}
           disabled={sending || !newMessage.trim()}
         >
-          {sending ? <ActivityIndicator size="small" color="white" /> : <Ionicons name="send" size={20} color="white" />}
+          {sending ? (
+            <ActivityIndicator size="small" color="white" />
+          ) : (
+            <Ionicons name="send" size={20} color="white" />
+          )}
         </TouchableOpacity>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -638,7 +695,12 @@ Always state that this is informational and not a substitute for professional me
 function createStyles(isDark: boolean) {
   return StyleSheet.create({
     safeArea: { flex: 1, backgroundColor: isDark ? "#050507" : "#fbfbfc" },
-    center: { flex: 1, justifyContent: "center", alignItems: "center", padding: 20 },
+    center: {
+      flex: 1,
+      justifyContent: "center",
+      alignItems: "center",
+      padding: 20,
+    },
     loadingText: {
       marginTop: 16,
       fontSize: 16,
@@ -649,6 +711,16 @@ function createStyles(isDark: boolean) {
       color: isDark ? "#FFFFFF" : "#1a1a1a",
       marginBottom: 20,
       textAlign: "center",
+    },
+    backButtonFull: {
+      paddingHorizontal: 24,
+      paddingVertical: 12,
+      borderRadius: 25,
+    },
+    backButtonText: {
+      color: "white",
+      fontSize: 16,
+      fontWeight: "600",
     },
     header: {
       flexDirection: "row",

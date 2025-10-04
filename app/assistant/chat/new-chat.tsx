@@ -14,30 +14,48 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-const AGENT_CONFIGS = {
+const PREDEFINED_AGENT_CONFIGS = {
   "medicine-teller": {
     name: "Medicine Identifier",
     description: "Upload a medicine image to get detailed information",
     icon: "medical",
     inputType: "image" as const,
+    sessionType: "medicine-teller",
   },
   "medicine-suggester": {
     name: "Medicine Suggester",
     description: "Describe your symptoms for medicine suggestions",
     icon: "bandage",
     inputType: "text" as const,
+    sessionType: "medicine-suggester",
   },
   "barcode-inspector": {
     name: "Barcode Scanner",
     description: "Scan barcode or upload barcode image",
     icon: "barcode",
     inputType: "barcode" as const,
+    sessionType: "barcode-inspector",
   },
   "report-analyzer": {
     name: "Report Analyzer",
     description: "Upload lab reports for analysis",
     icon: "document",
     inputType: "file" as const,
+    sessionType: "report-analyzer",
+  },
+  "drug-interaction": {
+    name: "Drug Interaction Checker",
+    description: "Check interactions between multiple medicines",
+    icon: "warning",
+    inputType: "text" as const,
+    sessionType: "general",
+  },
+  "prescription-helper": {
+    name: "Prescription Helper",
+    description: "Get help with prescription information",
+    icon: "medkit",
+    inputType: "text" as const,
+    sessionType: "general",
   },
 };
 
@@ -51,16 +69,86 @@ export default function NewChatScreen() {
   const styles = createStyles(isDark);
 
   const [loading, setLoading] = useState(false);
+  const [fetchingAgent, setFetchingAgent] = useState(true);
   const [agentConfig, setAgentConfig] = useState<any>(null);
 
   useEffect(() => {
-    if (agentType && AGENT_CONFIGS[agentType as keyof typeof AGENT_CONFIGS]) {
-      setAgentConfig(AGENT_CONFIGS[agentType as keyof typeof AGENT_CONFIGS]);
-    } else {
-      Alert.alert("Error", "Invalid agent type");
+    loadAgentConfig();
+  }, [agentType]);
+
+  const loadAgentConfig = async () => {
+    if (!agentType) {
+      Alert.alert("Error", "Agent type not specified");
+      router.back();
+      return;
+    }
+
+    // Check if it's a predefined agent
+    if (
+      PREDEFINED_AGENT_CONFIGS[
+        agentType as keyof typeof PREDEFINED_AGENT_CONFIGS
+      ]
+    ) {
+      setAgentConfig(
+        PREDEFINED_AGENT_CONFIGS[
+          agentType as keyof typeof PREDEFINED_AGENT_CONFIGS
+        ]
+      );
+      setFetchingAgent(false);
+      return;
+    }
+
+    // Otherwise, fetch custom agent from database
+    try {
+      if (!user) {
+        Alert.alert("Error", "User not found");
+        router.back();
+        return;
+      }
+
+      const { data: userData } = await supabase
+        .from("users")
+        .select("id")
+        .eq("clerk_user_id", user.id)
+        .single();
+
+      if (!userData) {
+        Alert.alert("Error", "User not found");
+        router.back();
+        return;
+      }
+
+      const { data: customAgent, error } = await supabase
+        .from("user_agents")
+        .select("*")
+        .eq("id", agentType)
+        .eq("user_id", userData.id)
+        .single();
+
+      if (error || !customAgent) {
+        console.error("Custom agent not found:", error);
+        Alert.alert("Error", "Agent not found");
+        router.back();
+        return;
+      }
+
+      // Transform custom agent to config format
+      setAgentConfig({
+        name: customAgent.name,
+        description: customAgent.description || "",
+        icon: customAgent.icon || "build",
+        inputType: customAgent.input_type || "text",
+        sessionType: "custom",
+        systemPrompt: customAgent.system_prompt,
+        agentId: customAgent.id,
+      });
+      setFetchingAgent(false);
+    } catch (error) {
+      console.error("Error loading custom agent:", error);
+      Alert.alert("Error", "Failed to load agent");
       router.back();
     }
-  }, [agentType]);
+  };
 
   const createChatSession = async (
     initialMessage?: string,
@@ -71,7 +159,6 @@ export default function NewChatScreen() {
     setLoading(true);
 
     try {
-      // Get user UUID
       const { data: userData, error: userError } = await supabase
         .from("users")
         .select("id")
@@ -83,15 +170,21 @@ export default function NewChatScreen() {
         return;
       }
 
-      // Create new chat session
+      // Use sessionType for the session type field
+      const sessionType = agentConfig.sessionType || agentType;
+
       const { data: session, error: sessionError } = await supabase
         .from("ai_chat_sessions")
         .insert([
           {
             user_id: userData.id,
             title: agentConfig.name,
-            session_type: agentType,
-            context_data: { agent_type: agentType },
+            session_type: sessionType,
+            context_data: {
+              agent_type: agentType,
+              agent_id: agentConfig.agentId,
+              system_prompt: agentConfig.systemPrompt,
+            },
             is_active: true,
             last_message_at: new Date().toISOString(),
           },
@@ -101,7 +194,6 @@ export default function NewChatScreen() {
 
       if (sessionError) throw sessionError;
 
-      // Create initial message if provided
       if (initialMessage) {
         const { error: messageError } = await supabase
           .from("chat_messages")
@@ -119,7 +211,6 @@ export default function NewChatScreen() {
         if (messageError) throw messageError;
       }
 
-      // Navigate to chat session
       router.replace(`/assistant/chat/${session.id}` as any);
     } catch (error) {
       console.error("Error creating chat session:", error);
@@ -130,29 +221,10 @@ export default function NewChatScreen() {
   };
 
   const handleInputType = (inputType: string) => {
-    switch (inputType) {
-      case "text":
-        // For text input, we can start with empty session or prompt for input
-        createChatSession();
-        break;
-      case "image":
-        // For image input, we'll handle in the chat screen
-        createChatSession();
-        break;
-      case "barcode":
-        // For barcode, we'll handle in the chat screen
-        createChatSession();
-        break;
-      case "file":
-        // For file upload, we'll handle in the chat screen
-        createChatSession();
-        break;
-      default:
-        createChatSession();
-    }
+    createChatSession();
   };
 
-  if (!agentConfig) {
+  if (fetchingAgent) {
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.center}>
@@ -160,6 +232,35 @@ export default function NewChatScreen() {
             size="large"
             color={isDark ? "#5FD0D8" : "#007AFF"}
           />
+          <Text
+            style={[styles.loadingText, { color: isDark ? "#ccc" : "#666" }]}
+          >
+            Loading agent...
+          </Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!agentConfig) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.center}>
+          <Ionicons
+            name="alert-circle"
+            size={64}
+            color={isDark ? "#FF6B6B" : "#FF3B30"}
+          />
+          <Text style={styles.errorText}>Agent not found</Text>
+          <TouchableOpacity
+            style={[
+              styles.backButton,
+              { backgroundColor: isDark ? "#2D89FF" : "#007AFF" },
+            ]}
+            onPress={() => router.back()}
+          >
+            <Text style={styles.backButtonText}>Go Back</Text>
+          </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
@@ -167,19 +268,14 @@ export default function NewChatScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity
-          onPress={() => router.back()}
-          style={styles.backButton}
-        >
+        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color={styles.primary.color} />
         </TouchableOpacity>
         <Text style={styles.title}>New Chat</Text>
         <View style={{ width: 24 }} />
       </View>
 
-      {/* Agent Info */}
       <View style={styles.agentInfo}>
         <View
           style={[
@@ -193,7 +289,6 @@ export default function NewChatScreen() {
         <Text style={styles.agentDescription}>{agentConfig.description}</Text>
       </View>
 
-      {/* Input Options */}
       <View style={styles.inputOptions}>
         <Text style={styles.optionsTitle}>How would you like to start?</Text>
 
@@ -242,7 +337,6 @@ export default function NewChatScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Disclaimer */}
       <View style={styles.disclaimer}>
         <Ionicons name="warning" size={16} color="#FF9500" />
         <Text style={styles.disclaimerText}>
@@ -254,7 +348,6 @@ export default function NewChatScreen() {
   );
 }
 
-// Helper functions
 const getInputTypeIcon = (inputType: string) => {
   switch (inputType) {
     case "text":
@@ -310,6 +403,29 @@ const createStyles = (isDark: boolean) =>
       flex: 1,
       justifyContent: "center",
       alignItems: "center",
+      padding: 20,
+    },
+    loadingText: {
+      marginTop: 16,
+      fontSize: 16,
+    },
+    errorText: {
+      fontSize: 18,
+      fontWeight: "600",
+      color: isDark ? "#FFFFFF" : "#1a1a1a",
+      marginTop: 16,
+      marginBottom: 20,
+      textAlign: "center",
+    },
+    backButton: {
+      paddingHorizontal: 24,
+      paddingVertical: 12,
+      borderRadius: 25,
+    },
+    backButtonText: {
+      color: "white",
+      fontSize: 16,
+      fontWeight: "600",
     },
     header: {
       flexDirection: "row",
@@ -319,7 +435,7 @@ const createStyles = (isDark: boolean) =>
       paddingTop: 16,
       paddingBottom: 8,
     },
-    backButton: {
+    backBtn: {
       padding: 4,
     },
     title: {

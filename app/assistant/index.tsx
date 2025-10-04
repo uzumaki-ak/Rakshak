@@ -1,7 +1,7 @@
-import { supabase } from "@/config/SupabaseConfig";
 import AgentCard from "@/components/assistant/AgentCard";
-import SearchBar from "@/components/assistant/SearchBar";
 import FilterBar from "@/components/assistant/FilterBar";
+import SearchBar from "@/components/assistant/SearchBar";
+import { supabase } from "@/config/SupabaseConfig";
 import { AIAgent } from "@/types/assistant";
 import { useUser } from "@clerk/clerk-expo";
 import { Ionicons } from "@expo/vector-icons";
@@ -23,71 +23,77 @@ import { SafeAreaView } from "react-native-safe-area-context";
 // Predefined agents data
 const PREDEFINED_AGENTS: AIAgent[] = [
   {
-    id: 'medicine-teller',
-    name: 'Medicine Identifier',
-    description: 'Upload medicine image and get detailed information',
-    icon: 'medical',
-    type: 'predefined',
-    category: 'medicine',
-    system_prompt: 'You are a medicine identification expert. Analyze medicine images and provide detailed information including name, uses, dosage, side effects, and precautions.',
-    input_type: 'image',
-    output_type: 'text'
+    id: "medicine-teller",
+    name: "Medicine Identifier",
+    description: "Upload medicine image and get detailed information",
+    icon: "medical",
+    type: "predefined",
+    category: "medicine",
+    system_prompt:
+      "You are a medicine identification expert. Analyze medicine images and provide detailed information including name, uses, dosage, side effects, and precautions.",
+    input_type: "image",
+    output_type: "text",
   },
   {
-    id: 'medicine-suggester',
-    name: 'Medicine Suggester',
-    description: 'Describe symptoms and get medicine suggestions',
-    icon: 'bandage',
-    type: 'predefined',
-    category: 'medicine',
-    system_prompt: 'You are a medical assistant. Suggest possible OTC medicines based on symptoms, but always emphasize consulting a doctor for proper diagnosis.',
-    input_type: 'text',
-    output_type: 'text'
+    id: "medicine-suggester",
+    name: "Medicine Suggester",
+    description: "Describe symptoms and get medicine suggestions",
+    icon: "bandage",
+    type: "predefined",
+    category: "medicine",
+    system_prompt:
+      "You are a medical assistant. Suggest possible OTC medicines based on symptoms, but always emphasize consulting a doctor for proper diagnosis.",
+    input_type: "text",
+    output_type: "text",
   },
   {
-    id: 'barcode-inspector',
-    name: 'Barcode Scanner',
-    description: 'Scan barcode to get medicine information',
-    icon: 'barcode',
-    type: 'predefined',
-    category: 'medicine',
-    system_prompt: 'You are a barcode and medicine verification expert. Provide detailed product information from barcode data.',
-    input_type: 'barcode',
-    output_type: 'medicine_form'
+    id: "barcode-inspector",
+    name: "Barcode Scanner",
+    description: "Scan barcode to get medicine information",
+    icon: "barcode",
+    type: "predefined",
+    category: "medicine",
+    system_prompt:
+      "You are a barcode and medicine verification expert. Provide detailed product information from barcode data.",
+    input_type: "barcode",
+    output_type: "medicine_form",
   },
   {
-    id: 'report-analyzer',
-    name: 'Report Analyzer',
-    description: 'Upload lab reports for detailed analysis',
-    icon: 'document',
-    type: 'predefined',
-    category: 'analysis',
-    system_prompt: 'You are a clinical lab analyst. Analyze lab reports and provide structured interpretation with normal/abnormal values and recommendations.',
-    input_type: 'file',
-    output_type: 'report'
+    id: "report-analyzer",
+    name: "Report Analyzer",
+    description: "Upload lab reports for detailed analysis",
+    icon: "document",
+    type: "predefined",
+    category: "analysis",
+    system_prompt:
+      "You are a clinical lab analyst. Analyze lab reports and provide structured interpretation with normal/abnormal values and recommendations.",
+    input_type: "file",
+    output_type: "report",
   },
   {
-    id: 'drug-interaction',
-    name: 'Drug Interaction Checker',
-    description: 'Check interactions between multiple medicines',
-    icon: 'warning',
-    type: 'predefined',
-    category: 'medicine',
-    system_prompt: 'You are a pharmacology expert. Check and explain potential drug interactions with evidence-based information.',
-    input_type: 'text',
-    output_type: 'text'
+    id: "drug-interaction",
+    name: "Drug Interaction Checker",
+    description: "Check interactions between multiple medicines",
+    icon: "warning",
+    type: "predefined",
+    category: "medicine",
+    system_prompt:
+      "You are a pharmacology expert. Check and explain potential drug interactions with evidence-based information.",
+    input_type: "text",
+    output_type: "text",
   },
   {
-    id: 'prescription-helper',
-    name: 'Prescription Helper',
-    description: 'Get help with prescription information and alternatives',
-    icon: 'medkit',
-    type: 'predefined',
-    category: 'medicine',
-    system_prompt: 'You are a prescription assistance expert. Help users understand prescriptions and find alternatives if needed.',
-    input_type: 'text',
-    output_type: 'text'
-  }
+    id: "prescription-helper",
+    name: "Prescription Helper",
+    description: "Get help with prescription information and alternatives",
+    icon: "medkit",
+    type: "predefined",
+    category: "medicine",
+    system_prompt:
+      "You are a prescription assistance expert. Help users understand prescriptions and find alternatives if needed.",
+    input_type: "text",
+    output_type: "text",
+  },
 ];
 
 export default function AssistantScreen() {
@@ -100,16 +106,15 @@ export default function AssistantScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [userAgents, setUserAgents] = useState<AIAgent[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [activeFilter, setActiveFilter] = useState<'all' | 'medicine' | 'analysis' | 'assistance' | 'custom'>('all');
-  const [recentSessions, setRecentSessions] = useState<any[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [activeFilter, setActiveFilter] = useState<
+    "all" | "medicine" | "analysis" | "assistance" | "custom"
+  >("all");
 
-  // Fetch user's custom agents and recent sessions
   const fetchUserData = async () => {
     if (!user) return;
 
     try {
-      // Get user UUID
       const { data: userData, error: userError } = await supabase
         .from("users")
         .select("id")
@@ -118,27 +123,42 @@ export default function AssistantScreen() {
 
       if (userError || !userData) {
         console.error("User not found:", userError);
+        setUserAgents([]);
         return;
       }
 
       const userId = userData.id;
 
-      // Fetch user's custom agents (if we had a table for this)
-      // For now, we'll use predefined only and simulate user agents
-      const customAgents: AIAgent[] = []; // Would come from supabase
-
-      // Fetch recent chat sessions
-      const { data: sessions, error: sessionsError } = await supabase
-        .from("ai_chat_sessions")
+      // Fetch user's custom agents
+      const { data: customAgents, error: agentsError } = await supabase
+        .from("user_agents")
         .select("*")
         .eq("user_id", userId)
-        .order("last_message_at", { ascending: false })
-        .limit(5);
+        .eq("is_active", true)
+        .order("created_at", { ascending: false });
 
-      if (sessionsError) throw sessionsError;
+      if (agentsError) {
+        console.error("Error fetching agents:", agentsError);
+        setUserAgents([]);
+        return;
+      }
 
-      setUserAgents(customAgents);
-      setRecentSessions(sessions || []);
+      // Transform to AIAgent format
+      const transformedAgents: AIAgent[] = (customAgents || []).map(
+        (agent) => ({
+          id: agent.id,
+          name: agent.name,
+          description: agent.description || "",
+          icon: agent.icon || "build",
+          type: "custom" as const,
+          category: agent.category || "custom",
+          system_prompt: agent.system_prompt,
+          input_type: agent.input_type || "text",
+          output_type: agent.output_type || "text",
+        })
+      );
+
+      setUserAgents(transformedAgents);
     } catch (error) {
       console.error("Error fetching assistant data:", error);
       Alert.alert("Error", "Failed to load assistant data");
@@ -157,14 +177,14 @@ export default function AssistantScreen() {
     fetchUserData();
   }, [user]);
 
-  // Combine predefined and user agents
   const allAgents = [...PREDEFINED_AGENTS, ...userAgents];
 
-  // Filter agents based on search and category
-  const filteredAgents = allAgents.filter(agent => {
-    const matchesSearch = agent.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         agent.description.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesCategory = activeFilter === 'all' || agent.category === activeFilter;
+  const filteredAgents = allAgents.filter((agent) => {
+    const matchesSearch =
+      agent.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      agent.description.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesCategory =
+      activeFilter === "all" || agent.category === activeFilter;
     return matchesSearch && matchesCategory;
   });
 
@@ -172,8 +192,13 @@ export default function AssistantScreen() {
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.center}>
-          <ActivityIndicator size="large" color={isDark ? "#5FD0D8" : "#007AFF"} />
-          <Text style={[styles.loadingText, { color: isDark ? "#ccc" : "#666" }]}>
+          <ActivityIndicator
+            size="large"
+            color={isDark ? "#5FD0D8" : "#007AFF"}
+          />
+          <Text
+            style={[styles.loadingText, { color: isDark ? "#ccc" : "#666" }]}
+          >
             Loading AI Assistants...
           </Text>
         </View>
@@ -183,58 +208,62 @@ export default function AssistantScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      {/* Header */}
       <View style={styles.header}>
         <View>
           <Text style={styles.title}>AI Assistants</Text>
-          <Text style={styles.subtitle}>Get expert help with your medicines</Text>
+          <Text style={styles.subtitle}>
+            Get expert help with your medicines
+          </Text>
         </View>
         <TouchableOpacity
-          style={[styles.createButton, { backgroundColor: isDark ? "#2D89FF" : "#007AFF" }]}
-          onPress={() => router.push('/assistant/create-agent' as any)}
+          style={[
+            styles.createButton,
+            { backgroundColor: isDark ? "#2D89FF" : "#007AFF" },
+          ]}
+          onPress={() => router.push("/assistant/create-agent" as any)}
         >
           <Ionicons name="add" size={20} color="white" />
           <Text style={styles.createButtonText}>Create</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Search Bar */}
       <SearchBar
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         placeholder="Search assistants..."
       />
 
-      {/* Filter Bar */}
-      <FilterBar
-        activeFilter={activeFilter}
-        onFilterChange={setActiveFilter}
-      />
+      <FilterBar activeFilter={activeFilter} onFilterChange={setActiveFilter} />
 
-      {/* Create Agent Banner */}
       {userAgents.length === 0 && (
         <TouchableOpacity
-          style={[styles.createBanner, { backgroundColor: isDark ? "#1C1C1E" : "white" }]}
-          onPress={() => router.push('/assistant/create-agent' as any)}
+          style={[
+            styles.createBanner,
+            { backgroundColor: isDark ? "#1C1C1E" : "white" },
+          ]}
+          onPress={() => router.push("/assistant/create-agent" as any)}
         >
           <View style={styles.bannerContent}>
-            <Ionicons name="sparkles" size={32} color={isDark ? "#5FD0D8" : "#007AFF"} />
+            <Ionicons
+              name="sparkles"
+              size={32}
+              color={isDark ? "#5FD0D8" : "#007AFF"}
+            />
             <View style={styles.bannerText}>
               <Text style={styles.bannerTitle}>Create Your Own AI Agent</Text>
               <Text style={styles.bannerDescription}>
                 Customize an AI assistant for your specific needs
               </Text>
             </View>
-            <Ionicons 
-              name="chevron-forward" 
-              size={20} 
-              color={isDark ? "#8E8E93" : "#666"} 
+            <Ionicons
+              name="chevron-forward"
+              size={20}
+              color={isDark ? "#8E8E93" : "#666"}
             />
           </View>
         </TouchableOpacity>
       )}
 
-      {/* Agents Grid */}
       <FlatList
         data={filteredAgents}
         keyExtractor={(item) => item.id}
@@ -244,8 +273,9 @@ export default function AssistantScreen() {
           <AgentCard
             agent={item}
             onPress={() => {
-              // Navigate to specific agent or create new chat
-              router.push(`/assistant/chat/new-chat?agentType=${item.id}` as any);
+              router.push(
+                `/assistant/chat/new-chat?agentType=${item.id}` as any
+              );
             }}
           />
         )}
@@ -256,7 +286,11 @@ export default function AssistantScreen() {
         contentContainerStyle={styles.listContent}
         ListEmptyComponent={
           <View style={styles.emptyState}>
-            <Ionicons name="search" size={64} color={isDark ? "#38383A" : "#e5e5e5"} />
+            <Ionicons
+              name="search"
+              size={64}
+              color={isDark ? "#38383A" : "#e5e5e5"}
+            />
             <Text style={styles.emptyText}>No assistants found</Text>
             <Text style={styles.emptySubtext}>
               Try adjusting your search or filter
