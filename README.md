@@ -1,3 +1,4 @@
+completed full app with almoset all features some of featutre is yet to be furnished and ui is yet to be furnished 
 # Rakshak App Tab Structure & Features
 
 ## 1. 🏠 HOME TAB (`app/(tabs)/home.tsx`)

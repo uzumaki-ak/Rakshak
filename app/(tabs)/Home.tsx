@@ -1,8 +1,11 @@
+import ChatSessionsCard from "@/components/home/ChatSessionsCard";
+import EmptyStateCard from "@/components/home/EmptyStateCard";
 import ExpiryAlerts from "@/components/home/ExpiryAlerts";
 import MedicineStatusChart from "@/components/home/MedicineStatusChart";
 import QuickActions from "@/components/home/QuickActions";
 import QuickStats from "@/components/home/QuickStats";
 import RecentActivity from "@/components/home/RecentActivity";
+import UpcomingRemindersCard from "@/components/home/UpcomingRemindersCard";
 import { supabase } from "@/config/SupabaseConfig";
 import {
   ExpiryAlert,
@@ -15,6 +18,7 @@ import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Platform,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -23,6 +27,27 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+
+// Helper function to log activities
+const logActivity = async (
+  userId: string,
+  activityType: string,
+  activityData?: any
+) => {
+  try {
+    await supabase.from("user_activities").insert([
+      {
+        user_id: userId,
+        activity_type: activityType,
+        activity_data: activityData,
+        platform: Platform.OS,
+        app_version: "1.0.0",
+      },
+    ]);
+  } catch (error) {
+    console.error("Error logging activity:", error);
+  }
+};
 
 export default function HomeScreen() {
   const { user } = useUser();
@@ -45,73 +70,12 @@ export default function HomeScreen() {
     RecentActivityType[]
   >([]);
 
-  // Fetch all home data
-  const fetchHomeData = async () => {
-    if (!user) return;
-
-    try {
-      // Get user UUID from Clerk ID
-      const { data: userData, error: userError } = await supabase
-        .from("users")
-        .select("id")
-        .eq("clerk_user_id", user.id)
-        .single();
-
-      if (userError || !userData) {
-        console.error("User not found:", userError);
-        return;
-      }
-
-      const userId = userData.id;
-
-      // Fetch medicines for stats and alerts
-      const { data: medicines, error: medicinesError } = await supabase
-        .from("medicines")
-        .select("*")
-        .eq("user_id", userId)
-        .order("expiry_date", { ascending: true });
-
-      if (medicinesError) throw medicinesError;
-
-      // Fetch recent activities
-      const { data: activities, error: activitiesError } = await supabase
-        .from("user_activities")
-        .select("*")
-        .eq("user_id", userId)
-        .order("created_at", { ascending: false })
-        .limit(5);
-
-      if (activitiesError) throw activitiesError;
-
-      // Fetch active reminders count
-      const { data: reminders, error: remindersError } = await supabase
-        .from("reminders")
-        .select("id")
-        .eq("user_id", userId)
-        .eq("is_delivered", false)
-        .gte("remind_at", new Date().toISOString());
-
-      if (remindersError) throw remindersError;
-
-      // Calculate stats and alerts
-      const calculatedStats = calculateStats(medicines || [], reminders || []);
-      const calculatedAlerts = calculateExpiryAlerts(medicines || []);
-      const formattedActivities = formatRecentActivities(activities || []);
-
-      setStats(calculatedStats);
-      setExpiryAlerts(calculatedAlerts);
-      setRecentActivities(formattedActivities);
-    } catch (error) {
-      console.error("Error fetching home data:", error);
-      Alert.alert("Error", "Failed to load dashboard data");
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
-
   // Calculate statistics from medicines data
-  const calculateStats = (medicines: any[], reminders: any[]): HomeStats => {
+  const calculateStats = (
+    medicines: any[],
+    reminders: any[],
+    scans: any[]
+  ): HomeStats => {
     const now = new Date();
     const thirtyDaysFromNow = new Date(
       now.getTime() + 30 * 24 * 60 * 60 * 1000
@@ -133,7 +97,7 @@ export default function HomeScreen() {
       expiringSoon,
       expired,
       activeReminders: reminders.length,
-      recentScans: 0, // Could be calculated from scans table
+      recentScans: scans.length,
     };
   };
 
@@ -175,8 +139,12 @@ export default function HomeScreen() {
       .slice(0, 5); // Limit to 5 most critical alerts
   };
 
-  // Format recent activities for display
-  const formatRecentActivities = (activities: any[]): RecentActivityType[] => {
+  // Enhanced formatRecentActivities with more details
+  const formatRecentActivities = (
+    activities: any[],
+    medicines: any[],
+    chats: any[]
+  ): RecentActivityType[] => {
     return activities.map((activity) => {
       const baseActivity = {
         id: activity.id,
@@ -185,46 +153,144 @@ export default function HomeScreen() {
         metadata: activity.activity_data,
       };
 
-      // Customize based on activity type
       switch (activity.activity_type) {
         case "scan":
+          const medicineName =
+            activity.activity_data?.medicine_name || "Unknown";
           return {
             ...baseActivity,
             title: "Medicine Scanned",
-            description: "Added new medicine via scan",
+            description: `Scanned: ${medicineName}`,
           };
         case "medicine_added":
+          const addedName =
+            activity.activity_data?.medicine_name || "New medicine";
           return {
             ...baseActivity,
             title: "Medicine Added",
-            description: "Added new medicine manually",
+            description: `Added: ${addedName}`,
           };
         case "reminder_set":
           return {
             ...baseActivity,
             title: "Reminder Set",
-            description: "Created new reminder",
+            description:
+              activity.activity_data?.reminder_type || "New reminder created",
           };
         case "chat_started":
+          const sessionType = activity.activity_data?.session_type || "general";
           return {
             ...baseActivity,
             title: "AI Chat Started",
-            description: "Started conversation with assistant",
+            description: `Started ${sessionType.replace(/_/g, " ")} chat`,
           };
         case "report_uploaded":
           return {
             ...baseActivity,
             title: "Report Uploaded",
-            description: "Uploaded medical report",
+            description:
+              activity.activity_data?.report_type || "Medical report uploaded",
+          };
+        case "medicine_updated":
+          return {
+            ...baseActivity,
+            title: "Medicine Updated",
+            description: "Updated medicine details",
+          };
+        case "medicine_deleted":
+          return {
+            ...baseActivity,
+            title: "Medicine Removed",
+            description: "Medicine removed from inventory",
           };
         default:
           return {
             ...baseActivity,
             title: "Activity",
-            description: "User activity recorded",
+            description: activity.activity_type.replace(/_/g, " "),
           };
       }
     });
+  };
+
+  // Fetch all home data
+  const fetchHomeData = async () => {
+    if (!user) return;
+
+    try {
+      // Get user UUID from Clerk ID
+      const { data: userData, error: userError } = await supabase
+        .from("users")
+        .select("id")
+        .eq("clerk_user_id", user.id)
+        .single();
+
+      if (userError || !userData) {
+        console.error("User not found:", userError);
+        return;
+      }
+
+      const userId = userData.id;
+
+      // Fetch all data in parallel
+      const [medicines, activities, reminders, scans, chats] =
+        await Promise.all([
+          supabase
+            .from("medicines")
+            .select("*")
+            .eq("user_id", userId)
+            .order("expiry_date", { ascending: true }),
+          supabase
+            .from("user_activities")
+            .select("*")
+            .eq("user_id", userId)
+            .order("created_at", { ascending: false })
+            .limit(5),
+          supabase
+            .from("reminders")
+            .select("id")
+            .eq("user_id", userId)
+            .eq("is_delivered", false)
+            .gte("remind_at", new Date().toISOString()),
+          supabase
+            .from("scans")
+            .select("id")
+            .eq("user_id", userId)
+            .order("created_at", { ascending: false })
+            .limit(7),
+          supabase
+            .from("ai_chat_sessions")
+            .select("id")
+            .eq("user_id", userId)
+            .eq("is_active", true),
+        ]);
+
+      if (medicines.error) throw medicines.error;
+      if (activities.error) throw activities.error;
+      if (reminders.error) throw reminders.error;
+
+      const calculatedStats = calculateStats(
+        medicines.data || [],
+        reminders.data || [],
+        scans.data || []
+      );
+      const calculatedAlerts = calculateExpiryAlerts(medicines.data || []);
+      const formattedActivities = formatRecentActivities(
+        activities.data || [],
+        medicines.data || [],
+        chats.data || []
+      );
+
+      setStats(calculatedStats);
+      setExpiryAlerts(calculatedAlerts);
+      setRecentActivities(formattedActivities);
+    } catch (error) {
+      console.error("Error fetching home data:", error);
+      Alert.alert("Error", "Failed to load dashboard data");
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
   };
 
   // Handle pull-to-refresh
@@ -321,6 +387,23 @@ export default function HomeScreen() {
             }
           }}
         />
+
+        {/* Chat Sessions */}
+        <ChatSessionsCard />
+
+        {/* Upcoming Reminders */}
+        <UpcomingRemindersCard />
+
+        {/* Empty State when no medicines */}
+        {stats.totalMedicines === 0 && (
+          <EmptyStateCard
+            title="No Medicines Yet"
+            description="Start by scanning or manually adding your first medicine"
+            icon="medical"
+            actionLabel="Add Medicine"
+            onActionPress={() => router.push("/medicines/add" as any)}
+          />
+        )}
 
         {/* Medicine Status Chart */}
         <MedicineStatusChart />
