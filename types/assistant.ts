@@ -14,17 +14,10 @@ export interface AIChatSession {
 export interface ChatMessage {
   id: string;
   session_id: string;
-  sender: 'user' | 'assistant' | 'system';
+  role: 'user' | 'assistant' | 'system';
   content: string;
-  message_type: 'text' | 'image' | 'file' | 'suggestion' | 'warning';
-  model_used?: string;
-  tokens_used?: number;
-  processing_time_ms?: number;
-  confidence_score?: number;
+  image_url?: string;
   metadata?: any;
-  attachments?: string[];
-  is_flagged: boolean;
-  flag_reason?: string;
   created_at: string;
 }
 

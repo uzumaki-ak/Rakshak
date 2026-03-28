@@ -56,36 +56,62 @@ export default function NewChatScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const agentType = params.agentType as string;
+  const agentId = params.agentId as string;
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
   const styles = createStyles(isDark);
-
+ 
   const [loading, setLoading] = useState(false);
   const [fetchingAgent, setFetchingAgent] = useState(true);
   const [agentConfig, setAgentConfig] = useState<any>(null);
-
-  const loadAgentConfig = useCallback(() => {
-    if (!agentType) {
+ 
+  const loadAgentConfig = useCallback(async () => {
+    if (!agentType && !agentId) {
       router.back();
       return;
     }
-
-    const config = PREDEFINED_AGENT_CONFIGS[agentType as keyof typeof PREDEFINED_AGENT_CONFIGS];
-    if (config) {
-      setAgentConfig(config);
+ 
+    if (agentId) {
+      try {
+        const { data, error } = await supabase
+          .from("user_agents")
+          .select("*")
+          .eq("id", agentId)
+          .single();
+ 
+        if (error || !data) throw error;
+ 
+        setAgentConfig({
+          id: data.id,
+          name: data.name,
+          description: data.description,
+          icon: data.icon,
+          inputType: data.input_type,
+          sessionType: "custom",
+          isCustom: true,
+        });
+      } catch (err) {
+        console.error("Error fetching custom agent:", err);
+        router.back();
+      }
     } else {
-      router.back();
+      const config = PREDEFINED_AGENT_CONFIGS[agentType as keyof typeof PREDEFINED_AGENT_CONFIGS];
+      if (config) {
+        setAgentConfig(config);
+      } else {
+        router.back();
+      }
     }
     setFetchingAgent(false);
-  }, [agentType, router]);
-
+  }, [agentType, agentId, router]);
+ 
   useEffect(() => {
     loadAgentConfig();
   }, [loadAgentConfig]);
-
+ 
   const createChatSession = async () => {
     if (!user || !agentConfig) return;
-
+ 
     setLoading(true);
     try {
       const { data: dbUser } = await supabase
@@ -93,13 +119,14 @@ export default function NewChatScreen() {
         .select("id")
         .eq("clerk_user_id", user.id)
         .single();
-
+ 
       if (!dbUser) throw new Error("User disconnected.");
-
+ 
       const { data: session, error: sessErr } = await supabase
         .from("ai_chat_sessions")
         .insert([{
           user_id: dbUser.id,
+          agent_id: agentConfig.isCustom ? agentConfig.id : null,
           title: agentConfig.name,
           session_type: agentConfig.sessionType,
           is_active: true,
@@ -107,9 +134,9 @@ export default function NewChatScreen() {
         }])
         .select()
         .single();
-
+ 
       if (sessErr) throw sessErr;
-
+ 
       router.replace(`/assistant/chat/${session.id}` as any);
     } catch (error) {
       console.error("Session creation error:", error);
@@ -140,7 +167,11 @@ export default function NewChatScreen() {
       <View style={styles.content}>
         <View style={styles.agentOverview}>
           <View style={styles.agentIconWrap}>
-            <Ionicons name={agentConfig.icon} size={36} color="white" />
+            {agentConfig.isCustom ? (
+              <Text style={{ fontSize: 40 }}>{agentConfig.icon}</Text>
+            ) : (
+              <Ionicons name={agentConfig.icon} size={36} color="white" />
+            )}
           </View>
           <Text style={styles.agentName}>{agentConfig.name}</Text>
           <Text style={styles.agentDesc}>{agentConfig.description}</Text>
@@ -287,7 +318,7 @@ const createStyles = (isDark: boolean) => StyleSheet.create({
     padding: 16,
     borderRadius: 16,
     gap: 12,
-    marginTop: "auto",
+    marginTop: 24,
     marginBottom: 40,
   },
   disclaimerText: {

@@ -16,6 +16,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import color from "@/shared/color";
 
 const CATEGORIES = [
   { key: "medicine", label: "Medicine", icon: "medical" },
@@ -44,6 +45,7 @@ export default function CreateAgentScreen() {
     name: "",
     description: "",
     instructions: "",
+    icon: "🤖",
     category: "custom" as "medicine" | "analysis" | "assistance" | "custom",
     input_type: "text" as "text" | "image" | "barcode" | "file" | "mixed",
     output_type: "text" as "text" | "structured" | "medicine_form" | "report",
@@ -98,7 +100,7 @@ export default function CreateAgentScreen() {
             system_prompt: formData.instructions.trim(),
             input_type: formData.input_type,
             output_type: formData.output_type,
-            icon: "build",
+            icon: formData.icon,
             is_active: true,
           },
         ])
@@ -178,6 +180,21 @@ export default function CreateAgentScreen() {
                 numberOfLines={3}
                 maxLength={200}
               />
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Icon / Emoji</Text>
+              <View style={styles.emojiGrid}>
+                {["🤖", "🧘", "💊", "👨‍⚕️", "🧠", "🥗", "🏋️", "🧪", "📱", "🦷"].map(emoji => (
+                  <TouchableOpacity 
+                    key={emoji} 
+                    onPress={() => updateField("icon", emoji)}
+                    style={[styles.emojiBtn, formData.icon === emoji && styles.emojiBtnActive]}
+                  >
+                    <Text style={styles.emojiText}>{emoji}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
             </View>
           </View>
 
@@ -411,5 +428,28 @@ const createStyles = (isDark: boolean) =>
     },
     placeholder: {
       color: isDark ? "#636366" : "#999",
+    },
+    emojiGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 12,
+      marginTop: 8,
+    },
+    emojiBtn: {
+      width: 48,
+      height: 48,
+      borderRadius: 12,
+      backgroundColor: isDark ? "#1C1C1E" : "#f5f5f5",
+      justifyContent: 'center',
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: isDark ? "#38383A" : "#e5e5e5",
+    },
+    emojiBtnActive: {
+      borderColor: color.PRIMARY,
+      backgroundColor: color.PRIMARY + '15',
+    },
+    emojiText: {
+      fontSize: 24,
     },
   });

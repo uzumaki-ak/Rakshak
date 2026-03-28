@@ -100,7 +100,30 @@ export default function AssistantScreen() {
 
       if (!dbUser) return;
 
-      setUserAgents([]); // Future: Load custom agents
+      const { data: agents, error: agentsErr } = await supabase
+        .from("user_agents")
+        .select("*")
+        .eq("user_id", dbUser.id)
+        .eq("is_active", true)
+        .order("created_at", { ascending: false });
+
+      if (agentsErr) throw agentsErr;
+
+      const formattedAgents: AIAgent[] = (agents || []).map(a => ({
+        id: a.id,
+        name: a.name,
+        description: a.description || "",
+        icon: a.icon || "sparkles",
+        type: "custom",
+        category: a.category || "custom",
+        system_prompt: a.system_prompt,
+        input_type: a.input_type || "text",
+        output_type: a.output_type || "text",
+        created_at: a.created_at,
+        user_id: a.user_id,
+      }));
+
+      setUserAgents(formattedAgents);
     } catch (error) {
       console.error("Assistant Fetch Error:", error);
     } finally {
@@ -144,7 +167,7 @@ export default function AssistantScreen() {
         </View>
         <TouchableOpacity
           style={styles.createBtn}
-          onPress={() => Alert.alert("Coming Soon", "Custom AI Agent creation is launching soon!")}
+          onPress={() => router.push("/assistant/create-agent")}
         >
           <Ionicons name="sparkles" size={18} color="white" />
           <Text style={styles.createBtnText}>New Agent</Text>
@@ -168,7 +191,13 @@ export default function AssistantScreen() {
         renderItem={({ item }) => (
           <AgentCard
             agent={item}
-            onPress={() => router.push(`/assistant/chat/new-chat?agentType=${item.id}` as any)}
+            onPress={() => {
+              if (item.type === 'custom') {
+                router.push(`/assistant/chat/new-chat?agentId=${item.id}` as any);
+              } else {
+                router.push(`/assistant/chat/new-chat?agentType=${item.id}` as any);
+              }
+            }}
           />
         )}
         refreshControl={

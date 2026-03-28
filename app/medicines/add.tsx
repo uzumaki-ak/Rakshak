@@ -25,7 +25,7 @@ import { NotificationService } from "@/services/notifications/notificationServic
 /**
  * AddMedicineScreen
  * Modernized flow for manual medicine entry.
- * Features: Premium UI, Type Safety, Automatic Expiry Alerts.
+ * Features: Premium UI, Type Safety, Automatic Expiry Alerts, Daily Dose Reminders.
  */
 export default function AddMedicineScreen() {
   const { user } = useUser();
@@ -38,6 +38,7 @@ export default function AddMedicineScreen() {
 
   const [loading, setLoading] = useState(false);
   const [showExpiryPicker, setShowExpiryPicker] = useState(false);
+  const [showTimePicker, setShowTimePicker] = useState(false);
   const [formData, setFormData] = useState<MedicineFormData>({
     name: "",
     generic_name: "",
@@ -48,10 +49,26 @@ export default function AddMedicineScreen() {
     medicine_type: "otc",
     dosage_instructions: "",
     notes: "",
+    intake_times: [],
   });
 
   const updateField = (field: keyof MedicineFormData, value: any) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const addIntakeTime = (time: string) => {
+    if (formData.intake_times?.includes(time)) return;
+    setFormData((prev) => ({
+      ...prev,
+      intake_times: [...(prev.intake_times || []), time].sort(),
+    }));
+  };
+
+  const removeIntakeTime = (time: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      intake_times: prev.intake_times?.filter((t) => t !== time),
+    }));
   };
 
   const handleSave = async () => {
@@ -85,6 +102,7 @@ export default function AddMedicineScreen() {
           medicine_type: formData.medicine_type,
           dosage_instructions: formData.dosage_instructions?.trim(),
           notes: formData.notes?.trim(),
+          intake_times: formData.intake_times,
           status: "active",
           is_shared: false,
           is_donated: false,
@@ -95,9 +113,14 @@ export default function AddMedicineScreen() {
 
       if (error) throw error;
 
-      // Schedule notifications if expiry date is set
+      // 1. Schedule Expiry Alerts
       if (formData.expiry_date) {
         await notificationService.scheduleExpiryAlert(medicine.id, medicine.name, formData.expiry_date);
+      }
+
+      // 2. Schedule Daily Intake Reminders
+      if (formData.intake_times && formData.intake_times.length > 0) {
+        await notificationService.scheduleIntakeReminders(medicine.id, medicine.name, formData.intake_times);
       }
 
       Alert.alert("Success", `${formData.name} added to your vault.`, [
@@ -111,11 +134,11 @@ export default function AddMedicineScreen() {
     }
   };
 
-  const CustomInput = ({ label, value, onChange, required, isDark }: any) => (
+  const CustomInput = ({ label, value, onChange, required, isDark: inputIsDark }: any) => (
     <View style={styles.inputWrap}>
       <Text style={styles.label}>{label} {required && "*"}</Text>
       <TextInput
-        style={[styles.input, { backgroundColor: isDark ? "#2C2C2E" : "#F2F4F7", color: isDark ? "white" : "black" }]}
+        style={[styles.input, { backgroundColor: inputIsDark ? "#2C2C2E" : "#F2F4F7", color: inputIsDark ? "white" : "black" }]}
         value={value}
         onChangeText={onChange}
         placeholder={`Enter ${label.toLowerCase()}`}
@@ -143,6 +166,31 @@ export default function AddMedicineScreen() {
             <CustomInput label="Medicine Name" value={formData.name} onChange={(t: string) => updateField("name", t)} required isDark={isDark} />
             <CustomInput label="Strength (e.g. 500mg)" value={formData.strength} onChange={(t: string) => updateField("strength", t)} isDark={isDark} />
             <CustomInput label="Generic Name" value={formData.generic_name} onChange={(t: string) => updateField("generic_name", t)} isDark={isDark} />
+          </View>
+
+          <Text style={styles.sectionTitle}>Daily Reminders</Text>
+          <View style={styles.card}>
+            <View style={styles.reminderHeader}>
+              <Text style={styles.label}>Intake Schedule</Text>
+              <TouchableOpacity onPress={() => setShowTimePicker(true)} style={styles.addTimeBtn}>
+                <Ionicons name="add-circle" size={20} color={color.PRIMARY} />
+                <Text style={styles.addTimeText}>Add Time</Text>
+              </TouchableOpacity>
+            </View>
+            
+            <View style={styles.timeChips}>
+              {formData.intake_times?.map((time) => (
+                <View key={time} style={styles.chip}>
+                  <Text style={styles.chipText}>{time}</Text>
+                  <TouchableOpacity onPress={() => removeIntakeTime(time)}>
+                    <Ionicons name="close-circle" size={16} color="#8E8E93" />
+                  </TouchableOpacity>
+                </View>
+              ))}
+              {(!formData.intake_times || formData.intake_times.length === 0) && (
+                <Text style={styles.emptyTimesText}>No reminders set yet</Text>
+              )}
+            </View>
           </View>
 
           <Text style={styles.sectionTitle}>Inventory & Expiry</Text>
@@ -176,7 +224,7 @@ export default function AddMedicineScreen() {
           <View style={styles.card}>
             <TextInput
               style={[styles.textArea, { backgroundColor: isDark ? "#2C2C2E" : "#F2F4F7", color: isDark ? "white" : "black" }]}
-              placeholder="Dosage instructions or side effects..."
+              placeholder="Dosage instructions or notes..."
               placeholderTextColor="#8E8E93"
               multiline
               numberOfLines={4}
@@ -193,6 +241,22 @@ export default function AddMedicineScreen() {
             onChange={(e, date) => {
               setShowExpiryPicker(false);
               if (date) updateField("expiry_date", date.toISOString().split("T")[0]);
+            }}
+          />
+        )}
+
+        {showTimePicker && (
+          <DateTimePicker
+            value={new Date()}
+            mode="time"
+            is24Hour={false}
+            onChange={(e, date) => {
+              setShowTimePicker(false);
+              if (date) {
+                const hh = date.getHours().toString().padStart(2, '0');
+                const mm = date.getMinutes().toString().padStart(2, '0');
+                addIntakeTime(`${hh}:${mm}`);
+              }
             }}
           />
         )}
@@ -219,4 +283,11 @@ const createStyles = (isDark: boolean) => StyleSheet.create({
   qtyText: { fontSize: 16, fontFamily: "PoppinsRegular", fontWeight: "bold", minWidth: 20, textAlign: "center" },
   dateBtn: { height: 50, borderRadius: 14, flexDirection: "row", alignItems: "center", paddingHorizontal: 16, gap: 10 },
   textArea: { minHeight: 100, borderRadius: 16, padding: 16, textAlignVertical: "top", fontSize: 15, fontFamily: "PoppinsRegular" },
+  reminderHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  addTimeBtn: { flexDirection: "row", alignItems: "center", gap: 6 },
+  addTimeText: { color: color.PRIMARY, fontSize: 14, fontFamily: "PoppinsRegular", fontWeight: "600" },
+  timeChips: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 4 },
+  chip: { flexDirection: "row", alignItems: "center", backgroundColor: color.PRIMARY + "10", paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12, gap: 8, borderWidth: 1, borderColor: color.PRIMARY + "20" },
+  chipText: { fontSize: 14, fontFamily: "PoppinsRegular", fontWeight: "bold", color: color.PRIMARY },
+  emptyTimesText: { fontSize: 13, fontFamily: "PoppinsRegular", color: "#8E8E93", fontStyle: "italic" },
 });

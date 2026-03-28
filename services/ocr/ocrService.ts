@@ -14,7 +14,11 @@ export class OCRService {
   private constructor() {
     this.geminiApiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY || '';
     this.visionApiKey = process.env.EXPO_PUBLIC_GOOGLE_VISION_API_KEY || '';
+    this.euriApiKey = process.env.EXPO_PUBLIC_EURI_API_KEY || '';
   }
+
+  private euriApiKey: string;
+  private euriUrl: string = 'https://api.euron.one/api/v1/euri/chat/completions';
 
   public static getInstance(): OCRService {
     if (!OCRService.instance) {
@@ -81,7 +85,7 @@ export class OCRService {
       const prompt = `Extract medicine data: name, generic_name, strength, expiry_date (YYYY-MM-DD), batch_number, manufacturer from "${text}". Return pure JSON.`;
       
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${this.geminiApiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${this.geminiApiKey}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -96,6 +100,38 @@ export class OCRService {
       const generatedText = result.candidates?.[0]?.content?.parts?.[0]?.text;
       return JSON.parse(generatedText.trim());
     } catch (error) {
+      console.warn('Gemini OCR parsing failed, trying Eurian fallback...');
+      return this.parseTextWithEuri(text);
+    }
+  }
+
+  private async parseTextWithEuri(text: string): Promise<ParsedMedicineData> {
+    if (!this.euriApiKey) return this.fallbackPatternParsing(text);
+
+    try {
+      const prompt = `Extract medicine data: name, generic_name, strength, expiry_date (YYYY-MM-DD), batch_number, manufacturer from "${text}". Return pure JSON.`;
+      
+      const response = await fetch(this.euriUrl, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.euriApiKey}`
+        },
+        body: JSON.stringify({
+          messages: [{ role: 'user', content: prompt }],
+          model: 'gpt-4.1-nano',
+          temperature: 0.1,
+        }),
+      });
+
+      const result = await response.json();
+      const content = result.choices?.[0]?.message?.content;
+      if (!content) throw new Error('Euri empty response');
+      
+      const cleaned = content.replace(/```json\n?|```/g, '').trim();
+      return JSON.parse(cleaned);
+    } catch (error) {
+      console.error('Eurian fallback also failed:', error);
       return this.fallbackPatternParsing(text);
     }
   }

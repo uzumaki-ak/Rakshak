@@ -27,6 +27,7 @@ import { useUserSync } from "@/hooks/useUserSync";
 /**
  * MedicinesScreen
  * Inventory management screen for tracking medications, expiry, and status.
+ * Enhanced with Supabase Realtime for instant synchronization.
  */
 export default function MedicinesScreen() {
   const { user } = useUser();
@@ -79,7 +80,7 @@ export default function MedicinesScreen() {
       setMedicines(medicineData);
       applyFilters(medicineData, activeFilter, searchQuery);
     } catch (error) {
-      Alert.alert("Error", "Failed to load medicines bundle");
+      console.error("Fetch error:", error);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -88,6 +89,19 @@ export default function MedicinesScreen() {
 
   useEffect(() => {
     fetchMedicines();
+
+    // Enable Supabase Realtime Listener
+    const subscription = supabase
+      .channel('medicines_inventory')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'medicines' }, (payload) => {
+        console.log('Inventory Change Detected:', payload.eventType);
+        fetchMedicines();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(subscription);
+    };
   }, [fetchMedicines]);
 
   useEffect(() => {

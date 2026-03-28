@@ -25,7 +25,7 @@ import { NotificationService } from "@/services/notifications/notificationServic
 /**
  * EditMedicineScreen
  * Refactored for premium consistency and robust notification management.
- * High-end UI with automatic re-scheduling of expiry alerts.
+ * Features: Intakes Reminders, Expiry Alerts, and Inventory Control.
  */
 export default function EditMedicineScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -40,6 +40,7 @@ export default function EditMedicineScreen() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showExpiryPicker, setShowExpiryPicker] = useState(false);
+  const [showTimePicker, setShowTimePicker] = useState(false);
   const [formData, setFormData] = useState<MedicineFormData>({
     name: "",
     generic_name: "",
@@ -50,6 +51,7 @@ export default function EditMedicineScreen() {
     medicine_type: "otc",
     dosage_instructions: "",
     notes: "",
+    intake_times: [],
   });
 
   const fetchMedicine = useCallback(async () => {
@@ -73,6 +75,7 @@ export default function EditMedicineScreen() {
           medicine_type: data.medicine_type,
           dosage_instructions: data.dosage_instructions || "",
           notes: data.notes || "",
+          intake_times: data.intake_times || [],
         });
       }
     } catch (error) {
@@ -89,6 +92,21 @@ export default function EditMedicineScreen() {
 
   const updateField = (field: keyof MedicineFormData, value: any) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const addIntakeTime = (time: string) => {
+    if (formData.intake_times?.includes(time)) return;
+    setFormData((prev) => ({
+      ...prev,
+      intake_times: [...(prev.intake_times || []), time].sort(),
+    }));
+  };
+
+  const removeIntakeTime = (time: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      intake_times: prev.intake_times?.filter((t) => t !== time),
+    }));
   };
 
   const handleUpdate = async () => {
@@ -108,18 +126,24 @@ export default function EditMedicineScreen() {
           medicine_type: formData.medicine_type,
           dosage_instructions: formData.dosage_instructions?.trim(),
           notes: formData.notes?.trim(),
+          intake_times: formData.intake_times,
         })
         .eq("id", id!);
 
       if (error) throw error;
 
-      // Reset and Reschedule notifications
+      // Reschedule all notifications
       await notificationService.cancelMedicineNotifications(id!);
+      
       if (formData.expiry_date) {
         await notificationService.scheduleExpiryAlert(id!, formData.name, formData.expiry_date);
       }
+      
+      if (formData.intake_times && formData.intake_times.length > 0) {
+        await notificationService.scheduleIntakeReminders(id!, formData.name, formData.intake_times);
+      }
 
-      Alert.alert("Success", "Medicine information updated.", [
+      Alert.alert("Success", "Information updated and reminders synced.", [
         { text: "Done", onPress: () => router.back() }
       ]);
     } catch (error) {
@@ -131,7 +155,7 @@ export default function EditMedicineScreen() {
   };
 
   const handleDelete = async () => {
-    Alert.alert("Delete Medicine", "Are you sure you want to remove this from your inventory?", [
+    Alert.alert("Delete Medicine", "Are you sure you want to remove this?", [
       { text: "Cancel", style: "cancel" },
       {
         text: "Delete",
@@ -150,11 +174,11 @@ export default function EditMedicineScreen() {
     ]);
   };
 
-  const CustomInput = ({ label, value, onChange, required, isDark }: any) => (
+  const CustomInput = ({ label, value, onChange, required, isDark: inputIsDark }: any) => (
     <View style={styles.inputWrap}>
       <Text style={styles.label}>{label} {required && "*"}</Text>
       <TextInput
-        style={[styles.input, { backgroundColor: isDark ? "#2C2C2E" : "#F2F4F7", color: isDark ? "white" : "black" }]}
+        style={[styles.input, { backgroundColor: inputIsDark ? "#2C2C2E" : "#F2F4F7", color: inputIsDark ? "white" : "black" }]}
         value={value}
         onChangeText={onChange}
         placeholderTextColor="#8E8E93"
@@ -188,6 +212,31 @@ export default function EditMedicineScreen() {
           <View style={styles.card}>
             <CustomInput label="Medicine Name" value={formData.name} onChange={(t: string) => updateField("name", t)} required isDark={isDark} />
             <CustomInput label="Strength" value={formData.strength} onChange={(t: string) => updateField("strength", t)} isDark={isDark} />
+          </View>
+
+          <Text style={styles.sectionTitle}>Daily Reminders</Text>
+          <View style={styles.card}>
+            <View style={styles.reminderHeader}>
+              <Text style={styles.label}>Intake Schedule</Text>
+              <TouchableOpacity onPress={() => setShowTimePicker(true)} style={styles.addTimeBtn}>
+                <Ionicons name="add-circle" size={20} color={color.PRIMARY} />
+                <Text style={styles.addTimeText}>Add Time</Text>
+              </TouchableOpacity>
+            </View>
+            
+            <View style={styles.timeChips}>
+              {formData.intake_times?.map((time) => (
+                <View key={time} style={styles.chip}>
+                  <Text style={styles.chipText}>{time}</Text>
+                  <TouchableOpacity onPress={() => removeIntakeTime(time)}>
+                    <Ionicons name="close-circle" size={16} color="#8E8E93" />
+                  </TouchableOpacity>
+                </View>
+              ))}
+              {(!formData.intake_times || formData.intake_times.length === 0) && (
+                <Text style={styles.emptyTimesText}>No reminders set yet</Text>
+              )}
+            </View>
           </View>
 
           <Text style={styles.sectionTitle}>Inventory Control</Text>
@@ -233,6 +282,22 @@ export default function EditMedicineScreen() {
             }}
           />
         )}
+
+        {showTimePicker && (
+          <DateTimePicker
+            value={new Date()}
+            mode="time"
+            is24Hour={true}
+            onChange={(e, date) => {
+              setShowTimePicker(false);
+              if (date) {
+                const hh = date.getHours().toString().padStart(2, '0');
+                const mm = date.getMinutes().toString().padStart(2, '0');
+                addIntakeTime(`${hh}:${mm}`);
+              }
+            }}
+          />
+        )}
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -258,4 +323,11 @@ const createStyles = (isDark: boolean) => StyleSheet.create({
   dateBtn: { height: 50, borderRadius: 14, flexDirection: "row", alignItems: "center", paddingHorizontal: 16, gap: 10 },
   deleteBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", marginTop: 32, padding: 16, borderRadius: 16, backgroundColor: "#FF3B3010", gap: 8 },
   deleteText: { color: "#FF3B30", fontSize: 15, fontFamily: "PoppinsRegular", fontWeight: "bold" },
+  reminderHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  addTimeBtn: { flexDirection: "row", alignItems: "center", gap: 6 },
+  addTimeText: { color: color.PRIMARY, fontSize: 14, fontFamily: "PoppinsRegular", fontWeight: "600" },
+  timeChips: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 4 },
+  chip: { flexDirection: "row", alignItems: "center", backgroundColor: color.PRIMARY + "10", paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12, gap: 8, borderWidth: 1, borderColor: color.PRIMARY + "20" },
+  chipText: { fontSize: 14, fontFamily: "PoppinsRegular", fontWeight: "bold", color: color.PRIMARY },
+  emptyTimesText: { fontSize: 13, fontFamily: "PoppinsRegular", color: "#8E8E93", fontStyle: "italic" },
 });

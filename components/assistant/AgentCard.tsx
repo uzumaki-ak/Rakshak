@@ -57,7 +57,11 @@ export default function AgentCard({ agent, onPress }: AgentCardProps) {
             { backgroundColor: getIconColor(agent.category) },
           ]}
         >
-          <Ionicons name={agent.icon as any} size={20} color="white" />
+          {agent.type === "custom" ? (
+            <Text style={{ fontSize: 20 }}>{agent.icon}</Text>
+          ) : (
+            <Ionicons name={agent.icon as any} size={20} color="white" />
+          )}
         </View>
 
         {agent.type === "custom" && (

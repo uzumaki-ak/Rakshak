@@ -67,7 +67,6 @@ CREATE TABLE IF NOT EXISTS public.medicines (
     acquisition_source TEXT,
     cost NUMERIC,
     currency TEXT DEFAULT 'INR',
-    intake_times JSONB DEFAULT '[]'::jsonb,
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now()
 );

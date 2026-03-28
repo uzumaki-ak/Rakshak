@@ -33,7 +33,7 @@ export interface Medicine {
   notes?: string;
   acquisition_source?: string;
   cost?: number;
-  currency: string;
+  intake_times?: string[];
   created_at: string;
   updated_at: string;
 }
@@ -50,6 +50,7 @@ export interface MedicineFormData {
   medicine_type?: string;
   dosage_instructions?: string;
   notes?: string;
+  intake_times?: string[];
 }
 
 export interface MedicineStats {

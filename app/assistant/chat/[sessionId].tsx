@@ -19,7 +19,10 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { MedicineChatService } from "@/services/ai/medicineChatService";
+import { UploadService } from "@/services/media/uploadService";
+import * as ImagePicker from "expo-image-picker";
 import color from "@/shared/color";
+import { Image } from "react-native";
 
 /**
  * ChatSessionScreen
@@ -43,6 +46,9 @@ export default function ChatSessionScreen() {
   const [newMessage, setNewMessage] = useState("");
   const [sending, setSending] = useState(false);
   const [speakingId, setSpeakingId] = useState<string | null>(null);
+  const [customPrompt, setCustomPrompt] = useState<string | undefined>(undefined);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
 
   const fetchSessionData = useCallback(async () => {
     if (!user || !sessionId) return;
@@ -66,8 +72,21 @@ export default function ChatSessionScreen() {
       if (sessionError) throw sessionError;
       setSession(sessionData);
 
+      // If it's a custom agent, fetch the system prompt
+      if (sessionData.agent_id) {
+        const { data: agentData } = await supabase
+          .from("user_agents")
+          .select("system_prompt")
+          .eq("id", sessionData.agent_id)
+          .single();
+        
+        if (agentData) {
+          setCustomPrompt(agentData.system_prompt);
+        }
+      }
+
       const { data: messagesData, error: messagesError } = await supabase
-        .from("chat_messages")
+        .from("ai_chat_messages")
         .select("*")
         .eq("session_id", sessionId)
         .order("created_at", { ascending: true });
@@ -85,38 +104,55 @@ export default function ChatSessionScreen() {
     fetchSessionData();
   }, [fetchSessionData]);
 
-  useEffect(() => {
-    if (messages.length > 0) {
-      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 200);
+  const pickImage = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      quality: 0.8,
+    });
+
+    if (!result.canceled) {
+      setSelectedImage(result.assets[0].uri);
     }
-  }, [messages]);
+  };
 
   const sendMessage = async () => {
-    if (!newMessage.trim() || sending) return;
+    if ((!newMessage.trim() && !selectedImage) || sending) return;
 
     const userMessageContent = newMessage.trim();
+    const imageToUpload = selectedImage;
+    
     setNewMessage("");
+    setSelectedImage(null);
     setSending(true);
 
     const tempUserMsg: any = {
       id: `temp-${Date.now()}`,
       session_id: sessionId,
-      sender: "user",
+      role: "user",
       content: userMessageContent,
+      metadata: imageToUpload ? { image_url: imageToUpload } : null,
       created_at: new Date().toISOString(),
     };
 
     setMessages((prev) => [...prev, tempUserMsg]);
 
     try {
+      let uploadedUrl = null;
+      if (imageToUpload) {
+        setUploading(true);
+        uploadedUrl = await UploadService.getInstance().uploadImage(imageToUpload);
+        setUploading(false);
+      }
+
       // 1. Save user message to DB
       const { data: savedUserMsg, error: userMsgErr } = await supabase
-        .from("chat_messages")
+        .from("ai_chat_messages")
         .insert([{
           session_id: sessionId,
-          sender: "user",
+          role: "user",
           content: userMessageContent,
-          message_type: "text"
+          metadata: uploadedUrl ? { image_url: uploadedUrl } : null
         }])
         .select()
         .single();
@@ -124,25 +160,28 @@ export default function ChatSessionScreen() {
       if (userMsgErr) throw userMsgErr;
 
       // 2. Prepare AI Context
-      const history = messages.slice(-6).map(m => ({
-        role: m.sender === 'user' ? 'user' : 'model',
+      const history = messages.slice(-10).map(m => ({
+        role: m.role === 'user' ? 'user' : 'model' as any,
         parts: [{ text: m.content }]
       }));
 
       // 3. Call AI Service
-      // Mocking a default medicine context if none found in session
-      // In a real scenario, sessions would be linked to specific medicine IDs
-      const medicineContext = session?.context_data?.medicine || { name: "Medicine" };
-      const aiResult = await chatService.askAboutMedicine(medicineContext as any, userMessageContent, history as any);
+      const medicineContext = session?.context_data?.medicine || null;
+      const aiResult = await chatService.askAboutMedicine(
+        medicineContext as any, 
+        userMessageContent, 
+        history as any, 
+        customPrompt,
+        imageToUpload || undefined
+      );
 
       // 4. Save Assistant message to DB
       const { data: savedAiMsg, error: aiMsgErr } = await supabase
-        .from("chat_messages")
+        .from("ai_chat_messages")
         .insert([{
           session_id: sessionId,
-          sender: "assistant",
+          role: "assistant",
           content: aiResult.answer,
-          message_type: "text"
         }])
         .select()
         .single();
@@ -206,17 +245,24 @@ export default function ChatSessionScreen() {
         data={messages}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
-          <View style={[styles.msgWrapper, item.sender === "user" ? styles.msgRight : styles.msgLeft]}>
-            {item.sender === "assistant" && (
+          <View style={[styles.msgWrapper, item.role === "user" ? styles.msgRight : styles.msgLeft]}>
+            {item.role === "assistant" && (
               <View style={styles.aiAvatar}>
                 <Ionicons name="sparkles" size={14} color="white" />
               </View>
             )}
-            <View style={[styles.bubble, item.sender === "user" ? styles.bubbleUser : styles.bubbleAi]}>
-              <Text style={[styles.msgText, item.sender === "user" ? styles.msgTextUser : styles.msgTextAi]}>
+            <View style={[styles.bubble, item.role === "user" ? styles.bubbleUser : styles.bubbleAi]}>
+              {item.metadata?.image_url && (
+                <Image 
+                  source={{ uri: item.metadata.image_url }} 
+                  style={styles.messageImage} 
+                  resizeMode="cover"
+                />
+              )}
+              <Text style={[styles.msgText, item.role === "user" ? styles.msgTextUser : styles.msgTextAi]}>
                 {item.content}
               </Text>
-              {item.sender === "assistant" && (
+              {item.role === "assistant" && (
                 <TouchableOpacity onPress={() => handleSpeech(item.id, item.content)} style={styles.speakBtn}>
                   <Ionicons name={speakingId === item.id ? "pause-circle" : "volume-medium-outline"} size={18} color="#8E8E93" />
                 </TouchableOpacity>
@@ -229,21 +275,32 @@ export default function ChatSessionScreen() {
       />
 
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} keyboardVerticalOffset={10}>
+        {selectedImage && (
+          <View style={styles.previewContainer}>
+            <Image source={{ uri: selectedImage }} style={styles.previewImage} />
+            <TouchableOpacity style={styles.removePreview} onPress={() => setSelectedImage(null)}>
+              <Ionicons name="close-circle" size={20} color="red" />
+            </TouchableOpacity>
+          </View>
+        )}
         <View style={styles.inputBar}>
+          <TouchableOpacity style={styles.attachBtn} onPress={pickImage}>
+            <Ionicons name="image-outline" size={24} color={color.PRIMARY} />
+          </TouchableOpacity>
           <TextInput
             style={[styles.input, { backgroundColor: isDark ? "#2C2C2E" : "#F2F4F7" }]}
-            placeholder="Ask anything about your health..."
+            placeholder="Ask anything or upload a report..."
             placeholderTextColor="#8E8E93"
             value={newMessage}
             onChangeText={setNewMessage}
             multiline
           />
           <TouchableOpacity 
-            style={[styles.sendBtn, { opacity: newMessage.trim() ? 1 : 0.5 }]} 
+            style={[styles.sendBtn, { opacity: (newMessage.trim() || selectedImage) ? 1 : 0.5 }]} 
             onPress={sendMessage}
-            disabled={sending || !newMessage.trim()}
+            disabled={sending || (!newMessage.trim() && !selectedImage)}
           >
-            {sending ? <ActivityIndicator size="small" color="white" /> : <Ionicons name="send" size={20} color="white" />}
+            {sending || uploading ? <ActivityIndicator size="small" color="white" /> : <Ionicons name="send" size={20} color="white" />}
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
@@ -379,5 +436,31 @@ const createStyles = (isDark: boolean) => StyleSheet.create({
     backgroundColor: color.PRIMARY,
     justifyContent: "center",
     alignItems: "center",
+  },
+  attachBtn: {
+    padding: 4,
+  },
+  previewContainer: {
+    flexDirection: 'row',
+    padding: 10,
+    backgroundColor: isDark ? "#1C1C1E" : "#F2F4F7",
+    borderTopWidth: 1,
+    borderTopColor: isDark ? "#2C2C2E" : "#ECEEF2",
+  },
+  previewImage: {
+    width: 60,
+    height: 60,
+    borderRadius: 8,
+  },
+  removePreview: {
+    position: 'absolute',
+    top: 5,
+    left: 55,
+  },
+  messageImage: {
+    width: 200,
+    height: 150,
+    borderRadius: 12,
+    marginBottom: 8,
   },
 });

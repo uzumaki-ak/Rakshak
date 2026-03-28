@@ -2,6 +2,7 @@ import ChatSessionsCard from "@/components/home/ChatSessionsCard";
 import EmptyStateCard from "@/components/home/EmptyStateCard";
 import ExpiryAlerts from "@/components/home/ExpiryAlerts";
 import MedicineStatusChart from "@/components/home/MedicineStatusChart";
+import NextDoseCard from "@/components/home/NextDoseCard";
 import QuickActions from "@/components/home/QuickActions";
 import QuickStats from "@/components/home/QuickStats";
 import RecentActivity from "@/components/home/RecentActivity";
@@ -13,6 +14,7 @@ import {
   HomeStats,
   RecentActivity as RecentActivityType,
 } from "@/types/home";
+import { Medicine } from "@/types/medicine";
 import { useUser } from "@clerk/clerk-expo";
 import { useRouter } from "expo-router";
 import React, { useEffect, useState, useCallback } from "react";
@@ -32,7 +34,7 @@ import { useUserSync } from "@/hooks/useUserSync";
 /**
  * HomeScreen
  * Main dashboard providing an overview of medicines, alerts, and activities.
- * Standardized for premium UI and consistent styling.
+ * Updated with Next Dose Countdown and interactive pull-to-refresh.
  */
 export default function HomeScreen() {
   const { user } = useUser();
@@ -44,6 +46,7 @@ export default function HomeScreen() {
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [medicines, setMedicines] = useState<Medicine[]>([]);
   const [stats, setStats] = useState<HomeStats>({
     totalMedicines: 0,
     expiringSoon: 0,
@@ -53,6 +56,7 @@ export default function HomeScreen() {
   });
   const [expiryAlerts, setExpiryAlerts] = useState<ExpiryAlert[]>([]);
   const [recentActivities, setRecentActivities] = useState<RecentActivityType[]>([]);
+  const [currentTime, setCurrentTime] = useState(new Date());
 
   /**
    * Fetch all dashboard data
@@ -61,7 +65,6 @@ export default function HomeScreen() {
     if (!user || !isSynced) return;
 
     try {
-      // 1. Get user UUID from clerk_user_id
       const { data: dbUser, error: userError } = await supabase
         .from("users")
         .select("id")
@@ -75,8 +78,7 @@ export default function HomeScreen() {
 
       const userId = dbUser.id;
 
-      // 2. Fetch parallel data
-      const [medicines, activities, reminders, scans] = await Promise.all([
+      const [medicinesRes, activitiesRes, remindersRes, scansRes] = await Promise.all([
         supabase
           .from("medicines")
           .select("*")
@@ -89,7 +91,7 @@ export default function HomeScreen() {
           .order("created_at", { ascending: false })
           .limit(10),
         supabase
-          .from("notifications") // Changed from 'reminders' to 'notifications' as per schema.sql
+          .from("notifications")
           .select("id")
           .eq("user_id", userId)
           .eq("is_read", false),
@@ -100,13 +102,13 @@ export default function HomeScreen() {
           .limit(10),
       ]);
 
-      if (medicines.error) throw medicines.error;
+      if (medicinesRes.error) throw medicinesRes.error;
 
-      // 3. Process data
-      const medicineData = medicines.data || [];
+      const medicineData = (medicinesRes.data || []) as Medicine[];
+      setMedicines(medicineData);
+
       const now = new Date();
       const thirtyDays = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
-      const sevenDays = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
       const expired = medicineData.filter(m => m.expiry_date && new Date(m.expiry_date) < now).length;
       const expiringSoon = medicineData.filter(m => 
@@ -117,11 +119,10 @@ export default function HomeScreen() {
         totalMedicines: medicineData.length,
         expiringSoon,
         expired,
-        activeReminders: reminders.data?.length || 0,
-        recentScans: scans.data?.length || 0,
+        activeReminders: remindersRes.data?.length || 0,
+        recentScans: scansRes.data?.length || 0,
       });
 
-      // 4. Calculate critical alerts
       const alerts: ExpiryAlert[] = medicineData
         .filter(m => {
           if (!m.expiry_date) return false;
@@ -144,8 +145,7 @@ export default function HomeScreen() {
 
       setExpiryAlerts(alerts);
 
-      // 5. Format activities (using scans as proxy for now)
-      const formatted: RecentActivityType[] = (activities.data || []).map(s => ({
+      const formatted: RecentActivityType[] = (activitiesRes.data || []).map(s => ({
         id: s.id,
         type: 'scan',
         title: 'Medicine Scanned',
@@ -172,6 +172,45 @@ export default function HomeScreen() {
   useEffect(() => {
     fetchHomeData();
   }, [fetchHomeData]);
+ 
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+ 
+  const getGreeting = () => {
+    const hours = currentTime.getHours();
+    if (hours < 12) return "Good Morning";
+    if (hours < 17) return "Good Afternoon";
+    return "Good Evening";
+  };
+
+  const handleTakeDose = async (medicineId: string) => {
+    try {
+      // 1. Log the intake
+      const { error } = await supabase.from("medication_logs").insert([{
+        user_id: (await supabase.from("users").select("id").eq("clerk_user_id", user?.id).single()).data?.id,
+        medicine_id: medicineId,
+        dose_amount: 1, // Default to 1
+        taken_at: new Date().toISOString()
+      }]);
+
+      if (error) throw error;
+      
+      // 2. Reduce quantity
+      const { data: med } = await supabase.from("medicines").select("current_quantity").eq("id", medicineId).single();
+      if (med) {
+        await supabase.from("medicines").update({ 
+          current_quantity: Math.max(0, (med.current_quantity || 0) - 1) 
+        }).eq("id", medicineId);
+      }
+
+      Alert.alert("Success", "Dose logged successfully!");
+      fetchHomeData();
+    } catch (error) {
+       Alert.alert("Error", "Failed to log dose.");
+    }
+  };
 
   if (loading || !isSynced) {
     return (
@@ -197,13 +236,29 @@ export default function HomeScreen() {
         contentContainerStyle={styles.content}
       >
         <View style={styles.header}>
-          <Text style={styles.welcomeTitle}>
-            Namaste{user?.firstName ? `, ${user.firstName}` : ""}!
-          </Text>
-          <Text style={styles.welcomeSubtitle}>
-            Your health dashboard is up to date.
-          </Text>
+          <View style={styles.headerLeft}>
+            <Text style={styles.welcomeTitle}>
+              {getGreeting()}{user?.firstName ? `, ${user.firstName}` : ""}!
+            </Text>
+            <Text style={styles.welcomeSubtitle}>
+              {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+            </Text>
+          </View>
+          <View style={styles.headerRight}>
+             <View style={styles.liveBadge}>
+               <View style={styles.liveDot} />
+               <Text style={styles.liveText}>LIVE</Text>
+             </View>
+          </View>
         </View>
+
+        <NextDoseCard 
+          medicines={medicines} 
+          onActionPress={() => {
+            const next = medicines.find(m => m.intake_times?.length);
+            if (next) handleTakeDose(next.id);
+          }} 
+        />
 
         {expiryAlerts.length > 0 && (
           <ExpiryAlerts
@@ -220,7 +275,7 @@ export default function HomeScreen() {
               case "scan": router.push("/scan" as any); break;
               case "add": router.push("/medicines/add" as any); break;
               case "assistant": router.push("/assistant" as any); break;
-              case "emergency": Alert.alert("Emergency", "Contacting emergency services..."); break;
+              case "emergency": router.push("/profile/emergency-contacts" as any); break;
             }
           }}
         />
@@ -241,7 +296,6 @@ export default function HomeScreen() {
 
         <RecentActivity activities={recentActivities} />
 
-        {/* Bottom Spacing for Tab Bar */}
         <View style={{ height: 80 }} />
       </ScrollView>
     </SafeAreaView>
@@ -250,51 +304,18 @@ export default function HomeScreen() {
 
 const createStyles = (isDark: boolean) =>
   StyleSheet.create({
-    safeArea: {
-      flex: 1,
-      backgroundColor: isDark ? "#0A0A0C" : "#F8FBFF",
-    },
-    container: {
-      flex: 1,
-    },
-    content: {
-      padding: 16,
-    },
-    center: {
-      flex: 1,
-      justifyContent: "center",
-      alignItems: "center",
-    },
-    loadingText: {
-      marginTop: 16,
-      fontSize: 16,
-      fontFamily: "PoppinsRegular",
-      color: isDark ? "#8E8E93" : "#636366",
-    },
-    header: {
-      marginBottom: 24,
-      paddingHorizontal: 4,
-    },
-    welcomeTitle: {
-      fontSize: 28,
-      fontFamily: "PoppinsRegular", // Should be bold if PoppinsBold is added
-      fontWeight: "bold",
-      color: isDark ? "#FFFFFF" : "#1A1A1E",
-      marginBottom: 4,
-    },
-    welcomeSubtitle: {
-      fontSize: 16,
-      fontFamily: "PoppinsRegular",
-      color: isDark ? "#8E8E93" : "#636366",
-    },
-    bgDecorative: {
-      position: "absolute",
-      top: -50,
-      right: -50,
-      width: 250,
-      height: 250,
-      borderRadius: 125,
-      backgroundColor: color.PRIMARY + "08",
-      zIndex: -1,
-    },
+    safeArea: { flex: 1, backgroundColor: isDark ? "#0A0A0C" : "#F8FBFF" },
+    container: { flex: 1 },
+    content: { padding: 16 },
+    center: { flex: 1, justifyContent: "center", alignItems: "center" },
+    loadingText: { marginTop: 16, fontSize: 16, fontFamily: "PoppinsRegular", color: isDark ? "#8E8E93" : "#636366" },
+    header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, paddingHorizontal: 4 },
+    headerLeft: { flex: 1 },
+    welcomeTitle: { fontSize: 28, fontFamily: "PoppinsRegular", fontWeight: "bold", color: isDark ? "#FFFFFF" : "#1A1A1E", marginBottom: 2 },
+    welcomeSubtitle: { fontSize: 13, fontFamily: "PoppinsMedium", color: color.PRIMARY, letterSpacing: 1 },
+    headerRight: { alignItems: 'flex-end' },
+    liveBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: isDark ? "#1C1C1E" : "#FFFFFF", paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12, gap: 6, borderWidth: 1, borderColor: isDark ? "#2C2C2E" : "#ECEEF2" },
+    liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#FF3B30' },
+    liveText: { fontSize: 10, fontFamily: "PoppinsRegular", fontWeight: "bold", color: "#8E8E93" },
+    bgDecorative: { position: "absolute", top: -50, right: -50, width: 250, height: 250, borderRadius: 125, backgroundColor: color.PRIMARY + "08", zIndex: -1 },
   });

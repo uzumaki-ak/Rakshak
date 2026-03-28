@@ -52,11 +52,12 @@ export class NotificationService {
     }
 
     if (Platform.OS === 'android') {
-      await Notifications.setNotificationChannelAsync('default', {
-        name: 'default',
+      await Notifications.setNotificationChannelAsync('medicine-reminders', {
+        name: 'Medicine Reminders',
         importance: Notifications.AndroidImportance.MAX,
         vibrationPattern: [0, 250, 250, 250],
         lightColor: '#FF231F7C',
+        sound: 'default',
       });
     }
 
@@ -70,9 +71,7 @@ export class NotificationService {
     const expiry = new Date(expiryDate);
     const now = new Date();
     
-    // Alert 30 days before
     const alertDate = new Date(expiry.getTime() - 30 * 24 * 60 * 60 * 1000);
-    
     if (alertDate > now) {
       await Notifications.scheduleNotificationAsync({
         content: {
@@ -80,11 +79,10 @@ export class NotificationService {
           body: `${medicineName} will expire in 30 days. Consider usage or replacement.`,
           data: { medicineId, type: 'expiry' },
         },
-        trigger: { date: alertDate } as any, // Typed as any to bypass SDK 54 type mismatch if Date is directly rejected
+        trigger: { date: alertDate } as any,
       });
     }
 
-    // Alert 7 days before
     const criticalDate = new Date(expiry.getTime() - 7 * 24 * 60 * 60 * 1000);
     if (criticalDate > now) {
       await Notifications.scheduleNotificationAsync({
@@ -99,6 +97,33 @@ export class NotificationService {
   }
 
   /**
+   * Schedule daily intake reminders
+   * @param medicineId 
+   * @param name 
+   * @param times Array of times in "HH:mm" format
+   */
+  async scheduleIntakeReminders(medicineId: string, name: string, times: string[]) {
+    for (const time of times) {
+      const [hour, minute] = time.split(':').map(Number);
+      
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: "Time for Medicine! 💊",
+          body: `It's time to take your dose of ${name}.`,
+          data: { medicineId, type: 'intake', time },
+          sound: true,
+        },
+        trigger: {
+          hour,
+          minute,
+          repeats: true,
+          type: Notifications.SchedulableTriggerInputTypes.CALENDAR,
+        } as any,
+      });
+    }
+  }
+
+  /**
    * Cancel all notifications for a specific medicine
    */
   async cancelMedicineNotifications(medicineId: string) {
@@ -108,6 +133,42 @@ export class NotificationService {
         await Notifications.cancelScheduledNotificationAsync(notification.identifier);
       }
     }
+  }
+
+  /**
+   * Get the next upcoming intake time across all medicines
+   */
+  getNextIntake(medicines: any[]): { medicine: any, time: string, date: Date } | null {
+    const now = new Date();
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    
+    let nextIntake: { medicine: any, time: string, date: Date } | null = null;
+    let minDiff = Infinity;
+
+    for (const med of medicines) {
+      if (!med.intake_times || med.intake_times.length === 0) continue;
+
+      for (const time of med.intake_times) {
+        const [h, m] = time.split(':').map(Number);
+        const intakeMinutes = h * 60 + m;
+        
+        let diff = intakeMinutes - currentMinutes;
+        let intakeDate = new Date(now);
+        intakeDate.setHours(h, m, 0, 0);
+
+        if (diff <= 0) {
+          diff += 24 * 60; // Next day
+          intakeDate.setDate(intakeDate.getDate() + 1);
+        }
+
+        if (diff < minDiff) {
+          minDiff = diff;
+          nextIntake = { medicine: med, time, date: intakeDate };
+        }
+      }
+    }
+
+    return nextIntake;
   }
 
   /**
