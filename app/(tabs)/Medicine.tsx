@@ -1,882 +1,97 @@
-// import EmptyState from "@/components/medicine/EmptyState";
-// import FilterBar from "@/components/medicine/FilterBar";
-// import MedicineCard from "@/components/medicine/MedicineCard";
-// import { supabase } from "@/config/SupabaseConfig";
-// import { Medicine } from "@/types/medicine";
-// import { useUser } from "@clerk/clerk-expo";
-// import { Ionicons } from "@expo/vector-icons";
-// import { useRouter } from "expo-router";
-// import React, { useEffect, useState } from "react";
-// import {
-//   ActivityIndicator,
-//   Alert,
-//   FlatList,
-//   RefreshControl,
-//   ScrollView,
-//   StyleSheet,
-//   Text,
-//   TouchableOpacity,
-//   View,
-// } from "react-native";
-
-// export default function MedicinesScreen() {
-//   const { user } = useUser();
-//   const router = useRouter();
-//   const [medicines, setMedicines] = useState<Medicine[]>([]);
-//   const [filteredMedicines, setFilteredMedicines] = useState<Medicine[]>([]);
-//   const [loading, setLoading] = useState(true);
-//   const [refreshing, setRefreshing] = useState(false);
-//   const [activeFilter, setActiveFilter] = useState<
-//     "all" | "active" | "expired" | "expiring"
-//   >("all");
-//   const [searchQuery, setSearchQuery] = useState("");
-
-//   // Fetch user's medicines
-//   const fetchMedicines = async () => {
-//     if (!user) return;
-
-//     try {
-//       // First, ensure user exists in database
-//       let { data: userData, error: userError } = await supabase
-//         .from("users")
-//         .select("id")
-//         .eq("clerk_user_id", user.id)
-//         .single();
-
-//       // If user doesn't exist, create them
-//       if (userError && userError.code === "PGRST116") {
-//         console.log("Creating new user record for:", user.id);
-
-//         // Generate a unique email if needed
-//         const baseEmail = user.emailAddresses[0]?.emailAddress || "";
-//         const uniqueEmail = baseEmail
-//           ? `${user.id}_${baseEmail}`
-//           : `${user.id}@temp.com`;
-
-//         const { data: newUser, error: createError } = await supabase
-//           .from("users")
-//           .insert([
-//             {
-//               clerk_user_id: user.id,
-//               email: uniqueEmail, // Use unique email
-//               full_name: user.fullName || "User",
-//               first_name: user.firstName || "User",
-//               last_name: user.lastName || "",
-//               country: "GB",
-//               timezone: "Asia/Kolkata",
-//             },
-//           ])
-//           .select("id")
-//           .single();
-
-//         if (createError) {
-//           console.error("Error creating user:", createError);
-//           throw createError;
-//         }
-//         userData = newUser;
-//         console.log("Created user with ID:", userData.id);
-//       } else if (userError) {
-//         throw userError;
-//       }
-
-//       // Now fetch medicines using the UUID
-//       const { data, error } = await supabase
-//         .from("medicines")
-//         .select("*")
-//         .eq("user_id", userData?.id)
-//         .order("expiry_date", { ascending: true });
-
-//       if (error) throw error;
-
-//       setMedicines(data || []);
-//       applyFilters(data || [], activeFilter, searchQuery);
-//     } catch (error) {
-//       console.error("Error fetching medicines:", error);
-//       Alert.alert("Error", "Failed to load medicines");
-//     } finally {
-//       setLoading(false);
-//       setRefreshing(false);
-//     }
-//   };
-//   // Apply filters and search
-//   const applyFilters = (meds: Medicine[], filter: string, query: string) => {
-//     let filtered = meds;
-
-//     // Apply status filter
-//     switch (filter) {
-//       case "active":
-//         filtered = filtered.filter((m) => m.status === "active");
-//         break;
-//       case "expired":
-//         filtered = filtered.filter(
-//           (m) => m.expiry_date && new Date(m.expiry_date) < new Date()
-//         );
-//         break;
-//       case "expiring":
-//         filtered = filtered.filter(
-//           (m) =>
-//             m.expiry_date &&
-//             new Date(m.expiry_date) > new Date() &&
-//             new Date(m.expiry_date) <=
-//               new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days
-//         );
-//         break;
-//     }
-
-//     // Apply search query
-//     if (query) {
-//       filtered = filtered.filter(
-//         (m) =>
-//           m.name.toLowerCase().includes(query.toLowerCase()) ||
-//           m.generic_name?.toLowerCase().includes(query.toLowerCase()) ||
-//           m.brand_name?.toLowerCase().includes(query.toLowerCase())
-//       );
-//     }
-
-//     setFilteredMedicines(filtered);
-//   };
-
-//   useEffect(() => {
-//     fetchMedicines();
-//   }, [user]);
-
-//   useEffect(() => {
-//     applyFilters(medicines, activeFilter, searchQuery);
-//   }, [activeFilter, searchQuery, medicines]);
-
-//   const onRefresh = () => {
-//     setRefreshing(true);
-//     fetchMedicines();
-//   };
-
-//   const getStats = () => {
-//     const total = medicines.length;
-//     const expired = medicines.filter(
-//       (m) => m.expiry_date && new Date(m.expiry_date) < new Date()
-//     ).length;
-//     const expiring = medicines.filter(
-//       (m) =>
-//         m.expiry_date &&
-//         new Date(m.expiry_date) > new Date() &&
-//         new Date(m.expiry_date) <=
-//           new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
-//     ).length;
-
-//     return { total, expired, expiring };
-//   };
-
-//   const stats = getStats();
-
-//   if (loading) {
-//     return (
-//       <View style={styles.center}>
-//         <ActivityIndicator size="large" color="#007AFF" />
-//         <Text style={styles.loadingText}>Loading your medicines...</Text>
-//       </View>
-//     );
-//   }
-
-//   return (
-//     <View style={styles.container}>
-//       {/* Header */}
-//       <View style={styles.header}>
-//         <Text style={styles.title}>My Medicines</Text>
-//         <TouchableOpacity
-//           style={styles.addButton}
-//           onPress={() => router.push("/medicines/add" as any)}
-//         >
-//           <Ionicons name="add" size={24} color="white" />
-//         </TouchableOpacity>
-//       </View>
-
-//       {/* Stats Overview */}
-//       <ScrollView
-//         horizontal
-//         showsHorizontalScrollIndicator={false}
-//         style={styles.statsContainer}
-//       >
-//         <View style={styles.statCard}>
-//           <Text style={styles.statNumber}>{stats.total}</Text>
-//           <Text style={styles.statLabel}>Total</Text>
-//         </View>
-//         <View style={styles.statCard}>
-//           <Text style={[styles.statNumber, styles.expiring]}>
-//             {stats.expiring}
-//           </Text>
-//           <Text style={styles.statLabel}>Expiring Soon</Text>
-//         </View>
-//         <View style={styles.statCard}>
-//           <Text style={[styles.statNumber, styles.expired]}>
-//             {stats.expired}
-//           </Text>
-//           <Text style={styles.statLabel}>Expired</Text>
-//         </View>
-//       </ScrollView>
-
-//       {/* Filter Bar */}
-//       <FilterBar
-//         activeFilter={activeFilter}
-//         onFilterChange={setActiveFilter}
-//         searchQuery={searchQuery}
-//         onSearchChange={setSearchQuery}
-//       />
-
-//       {/* Medicines List */}
-//       {filteredMedicines.length === 0 ? (
-//         <EmptyState
-//           filter={activeFilter}
-//           searchQuery={searchQuery}
-//           onAddMedicine={() => router.push("/medicines/add" as any)}
-//         />
-//       ) : (
-//         <FlatList
-//           data={filteredMedicines}
-//           keyExtractor={(item) => item.id}
-//           renderItem={({ item }) => (
-//             <MedicineCard
-//               medicine={item}
-//               onPress={() => router.push(`/medicines/${item.id}` as any)}
-//             />
-//           )}
-//           refreshControl={
-//             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-//           }
-//           contentContainerStyle={styles.listContent}
-//           showsVerticalScrollIndicator={false}
-//         />
-//       )}
-//     </View>
-//   );
-// }
-
-// const styles = StyleSheet.create({
-//   container: {
-//   flex: 1,
-//   backgroundColor: '#f5f5f5',
-//   paddingBottom: 25, // Add this to account for bottom tab + floating button
-// },
-//   center: {
-//     flex: 1,
-//     justifyContent: "center",
-//     alignItems: "center",
-//   },
-//   loadingText: {
-//     marginTop: 16,
-//     fontSize: 16,
-//     color: "#666",
-//   },
-//   header: {
-//     flexDirection: "row",
-//     justifyContent: "space-between",
-//     alignItems: "center",
-//     paddingHorizontal: 20,
-//     paddingTop: 60,
-//     paddingBottom: 20,
-//     backgroundColor: "white",
-//   },
-//   title: {
-//     fontSize: 28,
-//     fontWeight: "bold",
-//     color: "#1a1a1a",
-//   },
-//   addButton: {
-//     backgroundColor: "#007AFF",
-//     width: 44,
-//     height: 44,
-//     borderRadius: 22,
-//     justifyContent: "center",
-//     alignItems: "center",
-//     shadowColor: "#007AFF",
-//     shadowOffset: { width: 0, height: 4 },
-//     shadowOpacity: 0.3,
-//     shadowRadius: 8,
-//     elevation: 8,
-//   },
-//   statsContainer: {
-//   paddingHorizontal: 20,
-//   paddingVertical: 16,
-//   backgroundColor: 'white',
-//   minHeight: 100, // Add minimum height
-// },
-// statCard: {
-//   backgroundColor: '#f8f9fa',
-//   padding: 16,
-//   borderRadius: 12,
-//   marginRight: 12,
-//   minWidth: 100,
-//   alignItems: 'center',
-//   justifyContent: 'center', // Add this
-//   minHeight: 80, // Add minimum height
-// },
-//   statNumber: {
-//     fontSize: 24,
-//     fontWeight: "bold",
-//     color: "#1a1a1a",
-//   },
-//   expiring: {
-//     color: "#FF9500",
-//   },
-//   expired: {
-//     color: "#FF3B30",
-//   },
-//   statLabel: {
-//     fontSize: 12,
-//     color: "#666",
-//     marginTop: 4,
-//   },
-//   listContent: {
-//     padding: 16,
-//   },
-// });
-
-//
-// import EmptyState from "@/components/medicine/EmptyState";
-// import FilterBar from "@/components/medicine/FilterBar";
-// import MedicineCard from "@/components/medicine/MedicineCard";
-// import { supabase } from "@/config/SupabaseConfig";
-// import { Medicine } from "@/types/medicine";
-// import { useUser } from "@clerk/clerk-expo";
-// import { Ionicons } from "@expo/vector-icons";
-// import { useRouter } from "expo-router";
-// import React, { useEffect, useState } from "react";
-// import {
-//   ActivityIndicator,
-//   Alert,
-//   FlatList,
-//   RefreshControl,
-//   SafeAreaView,
-//   ScrollView,
-//   StyleSheet,
-//   Text,
-//   TouchableOpacity,
-//   useColorScheme,
-//   View,
-//   Platform,
-// } from "react-native";
-// import { useSafeAreaInsets } from "react-native-safe-area-context";
-
-// export default function MedicinesScreen() {
-//   const { user } = useUser();
-//   const router = useRouter();
-//   const insets = useSafeAreaInsets();
-//   const [medicines, setMedicines] = useState<Medicine[]>([]);
-//   const [filteredMedicines, setFilteredMedicines] = useState<Medicine[]>([]);
-//   const [loading, setLoading] = useState(true);
-//   const [refreshing, setRefreshing] = useState(false);
-//   const [activeFilter, setActiveFilter] = useState<
-//     "all" | "active" | "expired" | "expiring"
-//   >("all");
-//   const [searchQuery, setSearchQuery] = useState("");
-
-//   // Fetch user's medicines (INTENTIONAL: logic unchanged)
-//   const fetchMedicines = async () => {
-//     if (!user) return;
-
-//     try {
-//       let { data: userData, error: userError } = await supabase
-//         .from("users")
-//         .select("id")
-//         .eq("clerk_user_id", user.id)
-//         .single();
-
-//       if (userError && userError.code === "PGRST116") {
-//         const baseEmail = user.emailAddresses[0]?.emailAddress || "";
-//         const uniqueEmail = baseEmail
-//           ? `${user.id}_${baseEmail}`
-//           : `${user.id}@temp.com`;
-
-//         const { data: newUser, error: createError } = await supabase
-//           .from("users")
-//           .insert([
-//             {
-//               clerk_user_id: user.id,
-//               email: uniqueEmail,
-//               full_name: user.fullName || "User",
-//               first_name: user.firstName || "User",
-//               last_name: user.lastName || "",
-//               country: "GB",
-//               timezone: "Asia/Kolkata",
-//             },
-//           ])
-//           .select("id")
-//           .single();
-
-//         if (createError) {
-//           console.error("Error creating user:", createError);
-//           throw createError;
-//         }
-//         userData = newUser;
-//       } else if (userError) {
-//         throw userError;
-//       }
-
-//       const { data, error } = await supabase
-//         .from("medicines")
-//         .select("*")
-//         .eq("user_id", userData?.id)
-//         .order("expiry_date", { ascending: true });
-
-//       if (error) throw error;
-
-//       setMedicines(data || []);
-//       applyFilters(data || [], activeFilter, searchQuery);
-//     } catch (error) {
-//       console.error("Error fetching medicines:", error);
-//       Alert.alert("Error", "Failed to load medicines");
-//     } finally {
-//       setLoading(false);
-//       setRefreshing(false);
-//     }
-//   };
-
-//   const applyFilters = (meds: Medicine[], filter: string, query: string) => {
-//     let filtered = meds;
-
-//     switch (filter) {
-//       case "active":
-//         filtered = filtered.filter((m) => m.status === "active");
-//         break;
-//       case "expired":
-//         filtered = filtered.filter(
-//           (m) => m.expiry_date && new Date(m.expiry_date) < new Date()
-//         );
-//         break;
-//       case "expiring":
-//         filtered = filtered.filter(
-//           (m) =>
-//             m.expiry_date &&
-//             new Date(m.expiry_date) > new Date() &&
-//             new Date(m.expiry_date) <=
-//               new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
-//         );
-//         break;
-//     }
-
-//     if (query) {
-//       filtered = filtered.filter(
-//         (m) =>
-//           m.name.toLowerCase().includes(query.toLowerCase()) ||
-//           m.generic_name?.toLowerCase().includes(query.toLowerCase()) ||
-//           m.brand_name?.toLowerCase().includes(query.toLowerCase())
-//       );
-//     }
-
-//     setFilteredMedicines(filtered);
-//   };
-
-//   useEffect(() => {
-//     fetchMedicines();
-//     // eslint-disable-next-line react-hooks/exhaustive-deps
-//   }, [user]);
-
-//   useEffect(() => {
-//     applyFilters(medicines, activeFilter, searchQuery);
-//     // eslint-disable-next-line react-hooks/exhaustive-deps
-//   }, [activeFilter, searchQuery, medicines]);
-
-//   const onRefresh = () => {
-//     setRefreshing(true);
-//     fetchMedicines();
-//   };
-
-//   const getStats = () => {
-//     const total = medicines.length;
-//     const expired = medicines.filter(
-//       (m) => m.expiry_date && new Date(m.expiry_date) < new Date()
-//     ).length;
-//     const expiring = medicines.filter(
-//       (m) =>
-//         m.expiry_date &&
-//         new Date(m.expiry_date) > new Date() &&
-//         new Date(m.expiry_date) <=
-//           new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
-//     ).length;
-
-//     return { total, expired, expiring };
-//   };
-
-//   const stats = getStats();
-
-//   // UI-only: system theme
-//   const colorScheme = useColorScheme();
-//   const isDark = colorScheme === "dark";
-
-//   if (loading) {
-//     return (
-//       <SafeAreaView
-//         style={[styles.center, { backgroundColor: isDark ? "#0b0b0d" : "#f5f5f5" }]}
-//       >
-//         <ActivityIndicator size="large" color={isDark ? "#5FD0D8" : "#007AFF"} />
-//         <Text style={[styles.loadingText, { color: isDark ? "#ccc" : "#666" }]}>
-//           Loading your medicines...
-//         </Text>
-//       </SafeAreaView>
-//     );
-//   }
-
-//   return (
-//     <SafeAreaView
-//       style={[styles.container, { backgroundColor: isDark ? "#050507" : "#fbfbfc" }]}
-//     >
-//       {/* Decorative background "bend/logo" */}
-//       <View
-//         pointerEvents="none"
-//         style={[
-//           styles.bgBend,
-//           {
-//             backgroundColor: isDark ? "rgba(45,137,255,0.06)" : "rgba(0,122,255,0.06)",
-//             transform: [{ rotate: "-16deg" }],
-//           },
-//         ]}
-//       />
-
-//       {/* Header */}
-//       <View
-//         style={[
-//           styles.header,
-//           { backgroundColor: isDark ? "#07070a" : "white", borderBottomWidth: 0 },
-//         ]}
-//       >
-//         <Text style={[styles.title, { color: isDark ? "#fff" : "#1a1a1a" }]}>
-//           My Medicines
-//         </Text>
-
-//         {/* header add stays — unchanged logic but force it above other elements */}
-//         <TouchableOpacity
-//           style={[
-//             styles.addButton,
-//             {
-//               backgroundColor: isDark ? "#2D89FF" : "#007AFF",
-//               shadowColor: isDark ? "#2D89FF" : "#007AFF",
-//               zIndex: 20,
-//             },
-//           ]}
-//           onPress={() => router.push("/medicines/add" as any)}
-//           accessibilityLabel="Add medicine"
-//         >
-//           <Ionicons name="add" size={24} color="white" />
-//         </TouchableOpacity>
-//       </View>
-
-//       {/* Stats Overview — fixed height so it won't jump */}
-//       <ScrollView
-//         horizontal
-//         showsHorizontalScrollIndicator={false}
-//         style={[
-//           styles.statsContainer,
-//           { backgroundColor: isDark ? "#07070a" : "white" },
-//         ]}
-//         contentContainerStyle={{ alignItems: "center", paddingHorizontal: 16 }}
-//       >
-//         <View style={[styles.statCard, isDark && styles.statCardDark]}>
-//           <Text style={[styles.statNumber, { color: isDark ? "#fff" : "#1a1a1a" }]}>{stats.total}</Text>
-//           <Text style={[styles.statLabel, { color: isDark ? "#b8b8bf" : "#666" }]}>Total</Text>
-//         </View>
-
-//         <View style={[styles.statCard, isDark && styles.statCardDark]}>
-//           <Text style={[styles.statNumber, styles.expiring, { color: isDark ? "#FFB86B" : "#FF9500" }]}>
-//             {stats.expiring}
-//           </Text>
-//           <Text style={[styles.statLabel, { color: isDark ? "#b8b8bf" : "#666" }]}>Expiring Soon</Text>
-//         </View>
-
-//         <View style={[styles.statCard, isDark && styles.statCardDark]}>
-//           <Text style={[styles.statNumber, styles.expired, { color: isDark ? "#FF6B6B" : "#FF3B30" }]}>
-//             {stats.expired}
-//           </Text>
-//           <Text style={[styles.statLabel, { color: isDark ? "#b8b8bf" : "#666" }]}>Expired</Text>
-//         </View>
-//       </ScrollView>
-
-//       {/* Filter Bar */}
-//       <FilterBar
-//         activeFilter={activeFilter}
-//         onFilterChange={setActiveFilter}
-//         searchQuery={searchQuery}
-//         onSearchChange={setSearchQuery}
-//       />
-
-//       {/* Medicines List or Empty */}
-//       {filteredMedicines.length === 0 ? (
-//         <EmptyState
-//           filter={activeFilter}
-//           searchQuery={searchQuery}
-//           onAddMedicine={() => router.push("/medicines/add" as any)}
-//         />
-//       ) : (
-//         <FlatList
-//           data={filteredMedicines}
-//           keyExtractor={(item) => item.id}
-//           renderItem={({ item }) => (
-//             <MedicineCard
-//               medicine={item}
-//               onPress={() => router.push(`/medicines/${item.id}` as any)}
-//             />
-//           )}
-//           refreshControl={
-//             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-//           }
-//           contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 110 }]}
-//           showsVerticalScrollIndicator={false}
-//         />
-//       )}
-
-//       {/* Floating Add FAB — sits above bottom tab using safe area inset */}
-//       <TouchableOpacity
-//         onPress={() => router.push("/medicines/add" as any)}
-//         activeOpacity={0.85}
-//         style={[
-//           styles.fab,
-//           {
-//             bottom: (Platform.OS === "ios" ? insets.bottom : insets.bottom) + 18,
-//             right: 16,
-//             backgroundColor: isDark ? "#2D89FF" : "#007AFF",
-//             shadowColor: isDark ? "#2D89FF" : "#007AFF",
-//             zIndex: 99,
-//           },
-//         ]}
-//       >
-//         <Ionicons name="add" size={28} color="#fff" />
-//       </TouchableOpacity>
-//     </SafeAreaView>
-//   );
-// }
-
-// const styles = StyleSheet.create({
-//   container: {
-//     flex: 1,
-//   },
-//   center: {
-//     flex: 1,
-//     justifyContent: "center",
-//     alignItems: "center",
-//   },
-//   loadingText: {
-//     marginTop: 16,
-//     fontSize: 16,
-//   },
-//   header: {
-//     flexDirection: "row",
-//     justifyContent: "space-between",
-//     alignItems: "center",
-//     paddingHorizontal: 20,
-//     paddingTop: 6,
-//     paddingBottom: 10,
-//   },
-//   title: {
-//     fontSize: 28,
-//     fontWeight: "bold",
-//   },
-//   addButton: {
-//     width: 44,
-//     height: 44,
-//     borderRadius: 22,
-//     justifyContent: "center",
-//     alignItems: "center",
-//     shadowOffset: { width: 0, height: 4 },
-//     shadowOpacity: 0.25,
-//     shadowRadius: 8,
-//     elevation: 8,
-//   },
-//   statsContainer: {
-//     height: 96, // fixed so it doesn't resize when content below changes
-//     paddingVertical: 8,
-//   },
-//   statCard: {
-//     backgroundColor: "#f8f9fa",
-//     paddingHorizontal: 16,
-//     height: 80, // fixed height
-//     borderRadius: 12,
-//     marginRight: 12,
-//     minWidth: 110,
-//     alignItems: "center",
-//     justifyContent: "center",
-//   },
-//   statCardDark: {
-//     backgroundColor: "#0b0b0d",
-//     borderWidth: 1,
-//     borderColor: "#111214",
-//   },
-//   statNumber: {
-//     fontSize: 24,
-//     fontWeight: "bold",
-//   },
-//   expiring: {},
-//   expired: {},
-//   statLabel: {
-//     fontSize: 12,
-//     marginTop: 4,
-//   },
-//   listContent: {
-//     padding: 16,
-//   },
-
-//   fab: {
-//     position: "absolute",
-//     width: 60,
-//     height: 60,
-//     borderRadius: 30,
-//     justifyContent: "center",
-//     alignItems: "center",
-//     elevation: 10,
-//     shadowOffset: { width: 0, height: 8 },
-//     shadowOpacity: 0.25,
-//     shadowRadius: 12,
-//   },
-
-//   bgBend: {
-//     position: "absolute",
-//     top: -40,
-//     right: -120,
-//     width: 320,
-//     height: 320,
-//     borderRadius: 160,
-//     opacity: 1,
-//   },
-// });
-
-//
 import EmptyState from "@/components/medicine/EmptyState";
 import FilterBar from "@/components/medicine/FilterBar";
 import MedicineCard from "@/components/medicine/MedicineCard";
 import { supabase } from "@/config/SupabaseConfig";
+import color from "@/shared/color";
 import { Medicine } from "@/types/medicine";
 import { useUser } from "@clerk/clerk-expo";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import {
   ActivityIndicator,
   Alert,
   FlatList,
   RefreshControl,
   SafeAreaView,
-  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   useColorScheme,
   View,
+  ScrollView,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useUserSync } from "@/hooks/useUserSync";
 
+/**
+ * MedicinesScreen
+ * Inventory management screen for tracking medications, expiry, and status.
+ */
 export default function MedicinesScreen() {
   const { user } = useUser();
+  const { isSynced } = useUserSync();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const colorScheme = useColorScheme();
+  const isDark = colorScheme === "dark";
+  const styles = createStyles(isDark);
+
   const [medicines, setMedicines] = useState<Medicine[]>([]);
   const [filteredMedicines, setFilteredMedicines] = useState<Medicine[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [activeFilter, setActiveFilter] = useState<
-    "all" | "active" | "expired" | "expiring"
-  >("all");
+  const [activeFilter, setActiveFilter] = useState<"all" | "active" | "expired" | "expiring">("all");
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Fetch user's medicines (INTENTIONAL: logic unchanged)
-  const fetchMedicines = async () => {
-    if (!user) return;
+  const applyFilters = (meds: Medicine[], filter: string, query: string) => {
+    let result = meds;
+    const now = new Date();
+    const thirtyDays = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
 
+    if (filter === "active") result = result.filter(m => m.status === "active");
+    else if (filter === "expired") result = result.filter(m => m.expiry_date && new Date(m.expiry_date) < now);
+    else if (filter === "expiring") {
+      result = result.filter(m => m.expiry_date && new Date(m.expiry_date) >= now && new Date(m.expiry_date) <= thirtyDays);
+    }
+
+    if (query.trim()) {
+      const q = query.toLowerCase();
+      result = result.filter(m => 
+        m.name.toLowerCase().includes(q) || 
+        m.generic_name?.toLowerCase().includes(q) ||
+        m.manufacturer?.toLowerCase().includes(q)
+      );
+    }
+    setFilteredMedicines(result);
+  };
+
+  const fetchMedicines = useCallback(async () => {
+    if (!user || !isSynced) return;
     try {
-      let { data: userData, error: userError } = await supabase
-        .from("users")
-        .select("id")
-        .eq("clerk_user_id", user.id)
-        .single();
+      const { data: dbUser } = await supabase.from("users").select("id").eq("clerk_user_id", user.id).single();
+      if (!dbUser) return;
 
-      if (userError && userError.code === "PGRST116") {
-        const baseEmail = user.emailAddresses[0]?.emailAddress || "";
-        const uniqueEmail = baseEmail
-          ? `${user.id}_${baseEmail}`
-          : `${user.id}@temp.com`;
-
-        const { data: newUser, error: createError } = await supabase
-          .from("users")
-          .insert([
-            {
-              clerk_user_id: user.id,
-              email: uniqueEmail,
-              full_name: user.fullName || "User",
-              first_name: user.firstName || "User",
-              last_name: user.lastName || "",
-              country: "GB",
-              timezone: "Asia/Kolkata",
-            },
-          ])
-          .select("id")
-          .single();
-
-        if (createError) {
-          console.error("Error creating user:", createError);
-          throw createError;
-        }
-        userData = newUser;
-      } else if (userError) {
-        throw userError;
-      }
-
-      const { data, error } = await supabase
-        .from("medicines")
-        .select("*")
-        .eq("user_id", userData?.id)
-        .order("expiry_date", { ascending: true });
-
+      const { data, error } = await supabase.from("medicines").select("*").eq("user_id", dbUser.id).order("expiry_date", { ascending: true });
       if (error) throw error;
 
-      setMedicines(data || []);
-      applyFilters(data || [], activeFilter, searchQuery);
+      const medicineData = (data || []) as Medicine[];
+      setMedicines(medicineData);
+      applyFilters(medicineData, activeFilter, searchQuery);
     } catch (error) {
-      console.error("Error fetching medicines:", error);
-      Alert.alert("Error", "Failed to load medicines");
+      Alert.alert("Error", "Failed to load medicines bundle");
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  };
-
-  const applyFilters = (meds: Medicine[], filter: string, query: string) => {
-    let filtered = meds;
-
-    switch (filter) {
-      case "active":
-        filtered = filtered.filter((m) => m.status === "active");
-        break;
-      case "expired":
-        filtered = filtered.filter(
-          (m) => m.expiry_date && new Date(m.expiry_date) < new Date()
-        );
-        break;
-      case "expiring":
-        filtered = filtered.filter(
-          (m) =>
-            m.expiry_date &&
-            new Date(m.expiry_date) > new Date() &&
-            new Date(m.expiry_date) <=
-              new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
-        );
-        break;
-    }
-
-    if (query) {
-      filtered = filtered.filter(
-        (m) =>
-          m.name.toLowerCase().includes(query.toLowerCase()) ||
-          m.generic_name?.toLowerCase().includes(query.toLowerCase()) ||
-          m.brand_name?.toLowerCase().includes(query.toLowerCase())
-      );
-    }
-
-    setFilteredMedicines(filtered);
-  };
+  }, [user, isSynced, activeFilter, searchQuery]);
 
   useEffect(() => {
     fetchMedicines();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]);
+  }, [fetchMedicines]);
 
   useEffect(() => {
     applyFilters(medicines, activeFilter, searchQuery);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeFilter, searchQuery, medicines]);
 
   const onRefresh = () => {
@@ -884,274 +99,89 @@ export default function MedicinesScreen() {
     fetchMedicines();
   };
 
-  const getStats = () => {
-    const total = medicines.length;
-    const expired = medicines.filter(
-      (m) => m.expiry_date && new Date(m.expiry_date) < new Date()
-    ).length;
-    const expiring = medicines.filter(
-      (m) =>
-        m.expiry_date &&
-        new Date(m.expiry_date) > new Date() &&
-        new Date(m.expiry_date) <=
-          new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
-    ).length;
+  const stats = (() => {
+    const now = new Date();
+    const thirtyDays = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+    return {
+      total: medicines.length,
+      expired: medicines.filter(m => m.expiry_date && new Date(m.expiry_date) < now).length,
+      expiring: medicines.filter(m => m.expiry_date && new Date(m.expiry_date) >= now && new Date(m.expiry_date) <= thirtyDays).length,
+    };
+  })();
 
-    return { total, expired, expiring };
-  };
-
-  const stats = getStats();
-
-  // UI-only: system theme
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
-
-  if (loading) {
+  if (loading || !isSynced) {
     return (
-      <SafeAreaView
-        style={[
-          styles.center,
-          { backgroundColor: isDark ? "#0b0b0d" : "#f5f5f5" },
-        ]}
-      >
-        <ActivityIndicator
-          size="large"
-          color={isDark ? "#5FD0D8" : "#007AFF"}
-        />
-        <Text style={[styles.loadingText, { color: isDark ? "#ccc" : "#666" }]}>
-          Loading your medicines...
-        </Text>
+      <SafeAreaView style={[styles.container, styles.center]}>
+        <ActivityIndicator size="large" color={color.PRIMARY} />
+        <Text style={styles.loadingText}>Inventory syncing...</Text>
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView
-      style={[
-        styles.container,
-        { backgroundColor: isDark ? "#050507" : "#fbfbfc" },
-      ]}
-    >
-      {/* Decorative background "bend/logo" */}
-      <View
-        pointerEvents="none"
-        style={[
-          styles.bgBend,
-          {
-            backgroundColor: isDark
-              ? "rgba(45,137,255,0.06)"
-              : "rgba(0,122,255,0.06)",
-            transform: [{ rotate: "-16deg" }],
-          },
-        ]}
-      />
-
-      {/* Header */}
-      <View
-        style={[
-          styles.header,
-          {
-            backgroundColor: isDark ? "#07070a" : "white",
-            borderBottomWidth: 0,
-          },
-        ]}
-      >
-        <Text style={[styles.title, { color: isDark ? "#fff" : "#1a1a1a" }]}>
-          My Medicines
-        </Text>
-
-        {/* header add stays — unchanged logic */}
-        <TouchableOpacity
-          style={[
-            styles.addButton,
-            {
-              backgroundColor: isDark ? "#2D89FF" : "#007AFF",
-              shadowColor: isDark ? "#2D89FF" : "#007AFF",
-              zIndex: 20,
-            },
-          ]}
-          onPress={() => router.push("/medicines/add" as any)}
-          accessibilityLabel="Add medicine"
-        >
+    <SafeAreaView style={styles.container}>
+      <View style={styles.header}>
+        <View>
+          <Text style={styles.title}>My Inventory</Text>
+          <Text style={styles.subtitle}>Tracking {stats.total} medicines</Text>
+        </View>
+        <TouchableOpacity style={styles.addButton} onPress={() => router.push("/medicines/add" as any)}>
           <Ionicons name="add" size={24} color="white" />
         </TouchableOpacity>
       </View>
 
-      {/* Stats Overview — fixed height so it won't jump */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={[
-          styles.statsContainer,
-          { backgroundColor: isDark ? "#07070a" : "white" },
-        ]}
-        contentContainerStyle={{ alignItems: "center", paddingHorizontal: 16 }}
-      >
-        <View style={[styles.statCard, isDark && styles.statCardDark]}>
-          <Text
-            style={[styles.statNumber, { color: isDark ? "#fff" : "#1a1a1a" }]}
-          >
-            {stats.total}
-          </Text>
-          <Text
-            style={[styles.statLabel, { color: isDark ? "#b8b8bf" : "#666" }]}
-          >
-            Total
-          </Text>
-        </View>
+      <View style={styles.statsBar}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.statsScroll}>
+           <View style={styles.statChip}>
+             <Text style={styles.statValue}>{stats.total}</Text>
+             <Text style={styles.statLabel}>Total</Text>
+           </View>
+           <View style={[styles.statChip, { borderColor: "#FF3B3020" }]}>
+             <Text style={[styles.statValue, { color: "#FF3B30" }]}>{stats.expired}</Text>
+             <Text style={styles.statLabel}>Expired</Text>
+           </View>
+           <View style={[styles.statChip, { borderColor: "#FF950020" }]}>
+             <Text style={[styles.statValue, { color: "#FF9500" }]}>{stats.expiring}</Text>
+             <Text style={styles.statLabel}>Expiring</Text>
+           </View>
+        </ScrollView>
+      </View>
 
-        <View style={[styles.statCard, isDark && styles.statCardDark]}>
-          <Text
-            style={[
-              styles.statNumber,
-              styles.expiring,
-              { color: isDark ? "#FFB86B" : "#FF9500" },
-            ]}
-          >
-            {stats.expiring}
-          </Text>
-          <Text
-            style={[styles.statLabel, { color: isDark ? "#b8b8bf" : "#666" }]}
-          >
-            Expiring Soon
-          </Text>
-        </View>
+      <FilterBar activeFilter={activeFilter} onFilterChange={setActiveFilter as any} searchQuery={searchQuery} onSearchChange={setSearchQuery} />
 
-        <View style={[styles.statCard, isDark && styles.statCardDark]}>
-          <Text
-            style={[
-              styles.statNumber,
-              styles.expired,
-              { color: isDark ? "#FF6B6B" : "#FF3B30" },
-            ]}
-          >
-            {stats.expired}
-          </Text>
-          <Text
-            style={[styles.statLabel, { color: isDark ? "#b8b8bf" : "#666" }]}
-          >
-            Expired
-          </Text>
-        </View>
-      </ScrollView>
-
-      {/* Filter Bar */}
-      <FilterBar
-        activeFilter={activeFilter}
-        onFilterChange={setActiveFilter}
-        searchQuery={searchQuery}
-        onSearchChange={setSearchQuery}
-      />
-
-      {/* Medicines List or Empty */}
       {filteredMedicines.length === 0 ? (
-        <EmptyState
-          filter={activeFilter}
-          searchQuery={searchQuery}
-          onAddMedicine={() => router.push("/medicines/add" as any)}
-        />
+        <EmptyState filter={activeFilter} searchQuery={searchQuery} onAddMedicine={() => router.push("/medicines/add" as any)} />
       ) : (
         <FlatList
           data={filteredMedicines}
           keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
-            <MedicineCard
-              medicine={item}
-              onPress={() => router.push(`/medicines/${item.id}` as any)}
-            />
-          )}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-          }
-          contentContainerStyle={[
-            styles.listContent,
-            { paddingBottom: insets.bottom + 24 },
-          ]}
+          renderItem={({ item }) => <MedicineCard medicine={item} onPress={() => router.push(`/medicines/${item.id}` as any)} />}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={color.PRIMARY} />}
+          contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 100 }]}
           showsVerticalScrollIndicator={false}
         />
       )}
+
+      <TouchableOpacity style={[styles.fab, { bottom: insets.bottom + 20 }]} onPress={() => router.push("/medicines/add" as any)}>
+        <Ionicons name="add" size={30} color="white" />
+      </TouchableOpacity>
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  center: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 16,
-  },
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 20,
-    paddingTop: 6,
-    paddingBottom: 10,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: "bold",
-  },
-  addButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    justifyContent: "center",
-    alignItems: "center",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  statsContainer: {
-    height: 96, // fixed so it doesn't resize when content below changes
-    paddingVertical: 8,
-  },
-  statCard: {
-    backgroundColor: "#f8f9fa",
-    paddingHorizontal: 16,
-    height: 80, // fixed height
-    borderRadius: 12,
-    marginRight: 12,
-    minWidth: 110,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  statCardDark: {
-    backgroundColor: "#0b0b0d",
-    borderWidth: 1,
-    borderColor: "#111214",
-  },
-  statNumber: {
-    fontSize: 24,
-    fontWeight: "bold",
-  },
-  expiring: {},
-  expired: {},
-  statLabel: {
-    fontSize: 12,
-    marginTop: 4,
-  },
-  listContent: {
-    padding: 16,
-  },
-
-  /* FAB removed */
-
-  bgBend: {
-    position: "absolute",
-    top: -40,
-    right: -120,
-    width: 320,
-    height: 320,
-    borderRadius: 160,
-    opacity: 1,
-  },
+const createStyles = (isDark: boolean) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: isDark ? "#0A0A0C" : "#F8FBFF" },
+  center: { justifyContent: "center", alignItems: "center" },
+  loadingText: { marginTop: 12, fontFamily: "PoppinsRegular", color: isDark ? "#8E8E93" : "#636366" },
+  header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 20, paddingVertical: 16 },
+  title: { fontSize: 28, fontFamily: "PoppinsRegular", fontWeight: "bold", color: isDark ? "#FFFFFF" : "#1A1A1E" },
+  subtitle: { fontSize: 14, fontFamily: "PoppinsRegular", color: isDark ? "#8E8E93" : "#636366" },
+  addButton: { backgroundColor: color.PRIMARY, width: 44, height: 44, borderRadius: 22, justifyContent: "center", alignItems: "center", shadowColor: color.PRIMARY, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 5 },
+  statsBar: { paddingVertical: 8 },
+  statsScroll: { paddingHorizontal: 20, gap: 12 },
+  statChip: { backgroundColor: isDark ? "#1C1C1E" : "#FFFFFF", paddingHorizontal: 16, paddingVertical: 10, borderRadius: 16, minWidth: 100, alignItems: "center", borderWidth: 1, borderColor: isDark ? "#2C2C2E" : "#E5E5E7" },
+  statValue: { fontSize: 20, fontFamily: "PoppinsRegular", fontWeight: "bold", color: isDark ? "#FFFFFF" : "#1A1A1E" },
+  statLabel: { fontSize: 12, fontFamily: "PoppinsRegular", color: isDark ? "#8E8E93" : "#636366" },
+  listContent: { padding: 20 },
+  fab: { position: "absolute", right: 20, width: 60, height: 60, borderRadius: 30, backgroundColor: color.PRIMARY, justifyContent: "center", alignItems: "center", elevation: 8, shadowColor: color.PRIMARY, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 10 },
 });

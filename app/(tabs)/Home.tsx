@@ -7,6 +7,7 @@ import QuickStats from "@/components/home/QuickStats";
 import RecentActivity from "@/components/home/RecentActivity";
 import UpcomingRemindersCard from "@/components/home/UpcomingRemindersCard";
 import { supabase } from "@/config/SupabaseConfig";
+import color from "@/shared/color";
 import {
   ExpiryAlert,
   HomeStats,
@@ -14,11 +15,10 @@ import {
 } from "@/types/home";
 import { useUser } from "@clerk/clerk-expo";
 import { useRouter } from "expo-router";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Platform,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -27,30 +27,16 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useUserSync } from "@/hooks/useUserSync";
 
-// Helper function to log activities
-const logActivity = async (
-  userId: string,
-  activityType: string,
-  activityData?: any
-) => {
-  try {
-    await supabase.from("user_activities").insert([
-      {
-        user_id: userId,
-        activity_type: activityType,
-        activity_data: activityData,
-        platform: Platform.OS,
-        app_version: "1.0.0",
-      },
-    ]);
-  } catch (error) {
-    console.error("Error logging activity:", error);
-  }
-};
-
+/**
+ * HomeScreen
+ * Main dashboard providing an overview of medicines, alerts, and activities.
+ * Standardized for premium UI and consistent styling.
+ */
 export default function HomeScreen() {
   const { user } = useUser();
+  const { isSynced } = useUserSync();
   const router = useRouter();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
@@ -66,234 +52,118 @@ export default function HomeScreen() {
     recentScans: 0,
   });
   const [expiryAlerts, setExpiryAlerts] = useState<ExpiryAlert[]>([]);
-  const [recentActivities, setRecentActivities] = useState<
-    RecentActivityType[]
-  >([]);
+  const [recentActivities, setRecentActivities] = useState<RecentActivityType[]>([]);
 
-  // Calculate statistics from medicines data
-  const calculateStats = (
-    medicines: any[],
-    reminders: any[],
-    scans: any[]
-  ): HomeStats => {
-    const now = new Date();
-    const thirtyDaysFromNow = new Date(
-      now.getTime() + 30 * 24 * 60 * 60 * 1000
-    );
-
-    const expired = medicines.filter(
-      (m) => m.expiry_date && new Date(m.expiry_date) < now
-    ).length;
-
-    const expiringSoon = medicines.filter(
-      (m) =>
-        m.expiry_date &&
-        new Date(m.expiry_date) >= now &&
-        new Date(m.expiry_date) <= thirtyDaysFromNow
-    ).length;
-
-    return {
-      totalMedicines: medicines.length,
-      expiringSoon,
-      expired,
-      activeReminders: reminders.length,
-      recentScans: scans.length,
-    };
-  };
-
-  // Calculate expiry alerts with severity levels
-  const calculateExpiryAlerts = (medicines: any[]): ExpiryAlert[] => {
-    const now = new Date();
-    const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-    const thirtyDaysFromNow = new Date(
-      now.getTime() + 30 * 24 * 60 * 60 * 1000
-    );
-
-    return medicines
-      .filter((m) => m.expiry_date)
-      .map((medicine) => {
-        const expiryDate = new Date(medicine.expiry_date);
-        const daysUntilExpiry = Math.ceil(
-          (expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
-        );
-
-        let severity: "critical" | "warning" | "info" = "info";
-
-        if (daysUntilExpiry < 0) {
-          severity = "critical";
-        } else if (daysUntilExpiry <= 7) {
-          severity = "warning";
-        } else if (daysUntilExpiry <= 30) {
-          severity = "info";
-        }
-
-        return {
-          id: medicine.id,
-          medicineName: medicine.name,
-          expiryDate: medicine.expiry_date,
-          daysUntilExpiry,
-          severity,
-        };
-      })
-      .filter((alert) => alert.severity !== "info") // Only show critical and warning alerts
-      .slice(0, 5); // Limit to 5 most critical alerts
-  };
-
-  // Enhanced formatRecentActivities with more details
-  const formatRecentActivities = (
-    activities: any[],
-    medicines: any[],
-    chats: any[]
-  ): RecentActivityType[] => {
-    return activities.map((activity) => {
-      const baseActivity = {
-        id: activity.id,
-        type: activity.activity_type,
-        timestamp: activity.created_at,
-        metadata: activity.activity_data,
-      };
-
-      switch (activity.activity_type) {
-        case "scan":
-          const medicineName =
-            activity.activity_data?.medicine_name || "Unknown";
-          return {
-            ...baseActivity,
-            title: "Medicine Scanned",
-            description: `Scanned: ${medicineName}`,
-          };
-        case "medicine_added":
-          const addedName =
-            activity.activity_data?.medicine_name || "New medicine";
-          return {
-            ...baseActivity,
-            title: "Medicine Added",
-            description: `Added: ${addedName}`,
-          };
-        case "reminder_set":
-          return {
-            ...baseActivity,
-            title: "Reminder Set",
-            description:
-              activity.activity_data?.reminder_type || "New reminder created",
-          };
-        case "chat_started":
-          const sessionType = activity.activity_data?.session_type || "general";
-          return {
-            ...baseActivity,
-            title: "AI Chat Started",
-            description: `Started ${sessionType.replace(/_/g, " ")} chat`,
-          };
-        case "report_uploaded":
-          return {
-            ...baseActivity,
-            title: "Report Uploaded",
-            description:
-              activity.activity_data?.report_type || "Medical report uploaded",
-          };
-        case "medicine_updated":
-          return {
-            ...baseActivity,
-            title: "Medicine Updated",
-            description: "Updated medicine details",
-          };
-        case "medicine_deleted":
-          return {
-            ...baseActivity,
-            title: "Medicine Removed",
-            description: "Medicine removed from inventory",
-          };
-        default:
-          return {
-            ...baseActivity,
-            title: "Activity",
-            description: activity.activity_type.replace(/_/g, " "),
-          };
-      }
-    });
-  };
-
-  // Fetch all home data
-  const fetchHomeData = async () => {
-    if (!user) return;
+  /**
+   * Fetch all dashboard data
+   */
+  const fetchHomeData = useCallback(async () => {
+    if (!user || !isSynced) return;
 
     try {
-      // Get user UUID from Clerk ID
-      const { data: userData, error: userError } = await supabase
+      // 1. Get user UUID from clerk_user_id
+      const { data: dbUser, error: userError } = await supabase
         .from("users")
         .select("id")
         .eq("clerk_user_id", user.id)
         .single();
 
-      if (userError || !userData) {
-        console.error("User not found:", userError);
+      if (userError || !dbUser) {
+        console.error("User not found in Supabase:", userError);
         return;
       }
 
-      const userId = userData.id;
+      const userId = dbUser.id;
 
-      // Fetch all data in parallel
-      const [medicines, activities, reminders, scans, chats] =
-        await Promise.all([
-          supabase
-            .from("medicines")
-            .select("*")
-            .eq("user_id", userId)
-            .order("expiry_date", { ascending: true }),
-          supabase
-            .from("user_activities")
-            .select("*")
-            .eq("user_id", userId)
-            .order("created_at", { ascending: false })
-            .limit(5),
-          supabase
-            .from("reminders")
-            .select("id")
-            .eq("user_id", userId)
-            .eq("is_delivered", false)
-            .gte("remind_at", new Date().toISOString()),
-          supabase
-            .from("scans")
-            .select("id")
-            .eq("user_id", userId)
-            .order("created_at", { ascending: false })
-            .limit(7),
-          supabase
-            .from("ai_chat_sessions")
-            .select("id")
-            .eq("user_id", userId)
-            .eq("is_active", true),
-        ]);
+      // 2. Fetch parallel data
+      const [medicines, activities, reminders, scans] = await Promise.all([
+        supabase
+          .from("medicines")
+          .select("*")
+          .eq("user_id", userId)
+          .order("expiry_date", { ascending: true }),
+        supabase
+          .from("scans")
+          .select("*")
+          .eq("user_id", userId)
+          .order("created_at", { ascending: false })
+          .limit(10),
+        supabase
+          .from("notifications") // Changed from 'reminders' to 'notifications' as per schema.sql
+          .select("id")
+          .eq("user_id", userId)
+          .eq("is_read", false),
+        supabase
+          .from("scans")
+          .select("id")
+          .eq("user_id", userId)
+          .limit(10),
+      ]);
 
       if (medicines.error) throw medicines.error;
-      if (activities.error) throw activities.error;
-      if (reminders.error) throw reminders.error;
 
-      const calculatedStats = calculateStats(
-        medicines.data || [],
-        reminders.data || [],
-        scans.data || []
-      );
-      const calculatedAlerts = calculateExpiryAlerts(medicines.data || []);
-      const formattedActivities = formatRecentActivities(
-        activities.data || [],
-        medicines.data || [],
-        chats.data || []
-      );
+      // 3. Process data
+      const medicineData = medicines.data || [];
+      const now = new Date();
+      const thirtyDays = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+      const sevenDays = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
-      setStats(calculatedStats);
-      setExpiryAlerts(calculatedAlerts);
-      setRecentActivities(formattedActivities);
+      const expired = medicineData.filter(m => m.expiry_date && new Date(m.expiry_date) < now).length;
+      const expiringSoon = medicineData.filter(m => 
+        m.expiry_date && new Date(m.expiry_date) >= now && new Date(m.expiry_date) <= thirtyDays
+      ).length;
+
+      setStats({
+        totalMedicines: medicineData.length,
+        expiringSoon,
+        expired,
+        activeReminders: reminders.data?.length || 0,
+        recentScans: scans.data?.length || 0,
+      });
+
+      // 4. Calculate critical alerts
+      const alerts: ExpiryAlert[] = medicineData
+        .filter(m => {
+          if (!m.expiry_date) return false;
+          const exp = new Date(m.expiry_date);
+          return exp <= thirtyDays;
+        })
+        .map(m => {
+          const exp = new Date(m.expiry_date!);
+          const diff = Math.ceil((exp.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+          return {
+            id: m.id,
+            medicineName: m.name,
+            expiryDate: m.expiry_date!,
+            daysUntilExpiry: diff,
+            severity: diff < 0 ? "critical" : (diff <= 7 ? "warning" : "info"),
+          };
+        })
+        .filter(a => a.severity !== "info")
+        .slice(0, 5) as ExpiryAlert[];
+
+      setExpiryAlerts(alerts);
+
+      // 5. Format activities (using scans as proxy for now)
+      const formatted: RecentActivityType[] = (activities.data || []).map(s => ({
+        id: s.id,
+        type: 'scan',
+        title: 'Medicine Scanned',
+        description: s.parsed_data?.name || 'Manual Scan',
+        timestamp: s.created_at,
+        metadata: s.parsed_data
+      }));
+
+      setRecentActivities(formatted);
+
     } catch (error) {
       console.error("Error fetching home data:", error);
-      Alert.alert("Error", "Failed to load dashboard data");
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, [user, isSynced]);
 
-  // Handle pull-to-refresh
   const onRefresh = () => {
     setRefreshing(true);
     fetchHomeData();
@@ -301,21 +171,14 @@ export default function HomeScreen() {
 
   useEffect(() => {
     fetchHomeData();
-  }, [user]);
+  }, [fetchHomeData]);
 
-  if (loading) {
+  if (loading || !isSynced) {
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.center}>
-          <ActivityIndicator
-            size="large"
-            color={isDark ? "#5FD0D8" : "#007AFF"}
-          />
-          <Text
-            style={[styles.loadingText, { color: isDark ? "#ccc" : "#666" }]}
-          >
-            Loading your dashboard...
-          </Text>
+          <ActivityIndicator size="large" color={color.PRIMARY} />
+          <Text style={styles.loadingText}>Syncing metrics...</Text>
         </View>
       </SafeAreaView>
     );
@@ -323,93 +186,63 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      {/* Decorative background element */}
-      <View
-        pointerEvents="none"
-        style={[
-          styles.bgBend,
-          {
-            backgroundColor: isDark
-              ? "rgba(45,137,255,0.06)"
-              : "rgba(0,122,255,0.06)",
-          },
-        ]}
-      />
+      <View style={styles.bgDecorative} />
 
       <ScrollView
         style={styles.container}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={color.PRIMARY} />
         }
         contentContainerStyle={styles.content}
       >
-        {/* Welcome Header */}
         <View style={styles.header}>
           <Text style={styles.welcomeTitle}>
-            Welcome back{user?.firstName ? `, ${user.firstName}` : ""}!
+            Namaste{user?.firstName ? `, ${user.firstName}` : ""}!
           </Text>
           <Text style={styles.welcomeSubtitle}>
-            Here's your medicine overview
+            Your health dashboard is up to date.
           </Text>
         </View>
 
-        {/* Expiry Alerts Section */}
         {expiryAlerts.length > 0 && (
           <ExpiryAlerts
             alerts={expiryAlerts}
-            onAlertPress={(medicineId) =>
-              router.push(`/medicines/${medicineId}` as any)
-            }
+            onAlertPress={(id) => router.push(`/medicines/${id}` as any)}
           />
         )}
 
-        {/* Quick Stats */}
         <QuickStats stats={stats} />
 
-        {/* Quick Actions */}
         <QuickActions
           onActionPress={(action) => {
             switch (action) {
-              case "scan":
-                router.push("/scan" as any);
-                break;
-              case "add":
-                router.push("/medicines/add" as any);
-                break;
-              case "assistant":
-                router.push("/assistant" as any);
-                break;
-              case "emergency":
-                // Handle emergency contact access
-                Alert.alert("Emergency", "Show emergency contacts");
-                break;
+              case "scan": router.push("/scan" as any); break;
+              case "add": router.push("/medicines/add" as any); break;
+              case "assistant": router.push("/assistant" as any); break;
+              case "emergency": Alert.alert("Emergency", "Contacting emergency services..."); break;
             }
           }}
         />
 
-        {/* Chat Sessions */}
-        <ChatSessionsCard />
-
-        {/* Upcoming Reminders */}
         <UpcomingRemindersCard />
+        
+        <MedicineStatusChart />
 
-        {/* Empty State when no medicines */}
         {stats.totalMedicines === 0 && (
           <EmptyStateCard
-            title="No Medicines Yet"
-            description="Start by scanning or manually adding your first medicine"
+            title="No Medicines Added"
+            description="Start tracking your health by adding your medicines."
             icon="medical"
-            actionLabel="Add Medicine"
+            actionLabel="Add Now"
             onActionPress={() => router.push("/medicines/add" as any)}
           />
         )}
 
-        {/* Medicine Status Chart */}
-        <MedicineStatusChart />
-
-        {/* Recent Activity */}
         <RecentActivity activities={recentActivities} />
+
+        {/* Bottom Spacing for Tab Bar */}
+        <View style={{ height: 80 }} />
       </ScrollView>
     </SafeAreaView>
   );
@@ -419,14 +252,13 @@ const createStyles = (isDark: boolean) =>
   StyleSheet.create({
     safeArea: {
       flex: 1,
-      backgroundColor: isDark ? "#050507" : "#fbfbfc",
+      backgroundColor: isDark ? "#0A0A0C" : "#F8FBFF",
     },
     container: {
       flex: 1,
     },
     content: {
       padding: 16,
-      paddingBottom: 32,
     },
     center: {
       flex: 1,
@@ -436,29 +268,33 @@ const createStyles = (isDark: boolean) =>
     loadingText: {
       marginTop: 16,
       fontSize: 16,
+      fontFamily: "PoppinsRegular",
+      color: isDark ? "#8E8E93" : "#636366",
     },
     header: {
       marginBottom: 24,
-      paddingHorizontal: 8,
+      paddingHorizontal: 4,
     },
     welcomeTitle: {
       fontSize: 28,
+      fontFamily: "PoppinsRegular", // Should be bold if PoppinsBold is added
       fontWeight: "bold",
-      color: isDark ? "#FFFFFF" : "#1a1a1a",
+      color: isDark ? "#FFFFFF" : "#1A1A1E",
       marginBottom: 4,
     },
     welcomeSubtitle: {
       fontSize: 16,
-      color: isDark ? "#8E8E93" : "#666",
+      fontFamily: "PoppinsRegular",
+      color: isDark ? "#8E8E93" : "#636366",
     },
-    bgBend: {
+    bgDecorative: {
       position: "absolute",
-      top: -100,
-      right: -100,
-      width: 300,
-      height: 300,
-      borderRadius: 150,
-      opacity: 1,
-      transform: [{ rotate: "-15deg" }],
+      top: -50,
+      right: -50,
+      width: 250,
+      height: 250,
+      borderRadius: 125,
+      backgroundColor: color.PRIMARY + "08",
+      zIndex: -1,
     },
   });

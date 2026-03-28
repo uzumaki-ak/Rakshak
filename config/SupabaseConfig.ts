@@ -31,8 +31,8 @@ export interface Database {
           last_name: string | null;
           phone: string | null;
           avatar_url: string | null;
-          country: string | null;
-          timezone: string | null;
+          country: string;
+          timezone: string;
           date_of_birth: string | null;
           gender: string | null;
           expo_push_token: string | null;
@@ -59,8 +59,8 @@ export interface Database {
           last_name?: string | null;
           phone?: string | null;
           avatar_url?: string | null;
-          country?: string | null;
-          timezone?: string | null;
+          country?: string;
+          timezone?: string;
           date_of_birth?: string | null;
           gender?: string | null;
           expo_push_token?: string | null;
@@ -87,8 +87,8 @@ export interface Database {
           last_name?: string | null;
           phone?: string | null;
           avatar_url?: string | null;
-          country?: string | null;
-          timezone?: string | null;
+          country?: string;
+          timezone?: string;
           date_of_birth?: string | null;
           gender?: string | null;
           expo_push_token?: string | null;
@@ -223,7 +223,152 @@ export interface Database {
           updated_at?: string;
         };
       };
-      // Add other table types as needed
+      scans: {
+        Row: {
+          id: string;
+          user_id: string;
+          medicine_id: string | null;
+          scan_type: string;
+          image_path: string | null;
+          raw_ocr_text: string | null;
+          parsed_data: any | null;
+          confidence_score: number | null;
+          processing_status: string;
+          error_message: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          medicine_id?: string | null;
+          scan_type: string;
+          image_path?: string | null;
+          raw_ocr_text?: string | null;
+          parsed_data?: any | null;
+          confidence_score?: number | null;
+          processing_status?: string;
+          error_message?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          medicine_id?: string | null;
+          scan_type?: string;
+          image_path?: string | null;
+          raw_ocr_text?: string | null;
+          parsed_data?: any | null;
+          confidence_score?: number | null;
+          processing_status?: string;
+          error_message?: string | null;
+          created_at?: string;
+        };
+      };
+      medication_logs: {
+        Row: {
+          id: string;
+          user_id: string;
+          medicine_id: string;
+          dose_amount: number | null;
+          taken_at: string;
+          notes: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          medicine_id: string;
+          dose_amount?: number | null;
+          taken_at?: string;
+          notes?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          medicine_id?: string;
+          dose_amount?: number | null;
+          taken_at?: string;
+          notes?: string | null;
+          created_at?: string;
+        };
+      };
+      user_health_profiles: {
+        Row: {
+          id: string;
+          user_id: string;
+          known_allergies: string[] | null;
+          chronic_conditions: string[] | null;
+          current_medications: string[] | null;
+          blood_group: string | null;
+          weight: number | null;
+          height: number | null;
+          emergency_contact_name: string | null;
+          emergency_contact_phone: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          known_allergies?: string[] | null;
+          chronic_conditions?: string[] | null;
+          current_medications?: string[] | null;
+          blood_group?: string | null;
+          weight?: number | null;
+          height?: number | null;
+          emergency_contact_name?: string | null;
+          emergency_contact_phone?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          known_allergies?: string[] | null;
+          chronic_conditions?: string[] | null;
+          current_medications?: string[] | null;
+          blood_group?: string | null;
+          weight?: number | null;
+          height?: number | null;
+          emergency_contact_name?: string | null;
+          emergency_contact_phone?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
+      notifications: {
+        Row: {
+          id: string;
+          user_id: string;
+          title: string;
+          body: string;
+          type: string | null;
+          is_read: boolean;
+          data: any | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          title: string;
+          body: string;
+          type?: string | null;
+          is_read?: boolean;
+          data?: any | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          title?: string;
+          body?: string;
+          type?: string | null;
+          is_read?: boolean;
+          data?: any | null;
+          created_at?: string;
+        };
+      };
     };
     Views: {
       [_ in never]: never;

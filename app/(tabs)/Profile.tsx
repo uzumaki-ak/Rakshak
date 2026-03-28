@@ -1,9 +1,9 @@
 import { supabase } from "@/config/SupabaseConfig";
 import { HealthProfile, UserProfile } from "@/types/profile";
-import { useUser } from "@clerk/clerk-expo";
+import { useUser, useAuth } from "@clerk/clerk-expo";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -16,370 +16,176 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useUserSync } from "@/hooks/useUserSync";
+import color from "@/shared/color";
+import { LinearGradient } from "expo-linear-gradient";
 
+/**
+ * ProfileScreen
+ * User profile and health summary dashboard.
+ */
 export default function ProfileScreen() {
   const { user: clerkUser } = useUser();
+  const { signOut } = useAuth();
+  const { isSynced } = useUserSync();
   const router = useRouter();
-  const colorScheme = useColorScheme() as "light" | "dark" | null;
-  const styles = createStyles(colorScheme);
+  const colorScheme = useColorScheme();
+  const isDark = colorScheme === "dark";
+  const styles = createStyles(isDark);
 
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-  const [healthProfile, setHealthProfile] = useState<HealthProfile | null>(
-    null
-  );
+  const [healthProfile, setHealthProfile] = useState<HealthProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchProfileData();
-  }, [clerkUser]);
-
-  const fetchProfileData = async () => {
-    if (!clerkUser) return;
-
+  const fetchProfileData = useCallback(async () => {
+    if (!clerkUser || !isSynced) return;
     try {
-      const { data: userData, error: userError } = await supabase
-        .from("users")
-        .select("*")
-        .eq("clerk_user_id", clerkUser.id)
-        .single();
-
+      const { data: userData, error: userError } = await supabase.from("users").select("*").eq("clerk_user_id", clerkUser.id).single();
       if (userError) throw userError;
       setUserProfile(userData);
 
-      const { data: healthData, error: healthError } = await supabase
-        .from("user_health_profiles")
-        .select("*")
-        .eq("user_id", userData.id)
-        .single();
-
+      const { data: healthData, error: healthError } = await supabase.from("user_health_profiles").select("*").eq("user_id", userData.id).single();
       if (healthError && healthError.code !== "PGRST116") throw healthError;
       setHealthProfile(healthData);
     } catch (error) {
-      console.error("Error fetching profile:", error);
-      Alert.alert("Error", "Failed to load profile data");
+      console.error("Profile Fetch Error:", error);
     } finally {
       setLoading(false);
     }
+  }, [clerkUser, isSynced]);
+
+  useEffect(() => {
+    fetchProfileData();
+  }, [fetchProfileData]);
+
+  const handleSignOut = async () => {
+    Alert.alert("Sign Out", "Are you sure you want to sign out?", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Sign Out", style: "destructive", onPress: () => signOut() },
+    ]);
   };
 
-  const getStatsSummary = () => {
-    if (!healthProfile) return { allergies: 0, conditions: 0, medications: 0 };
+  const StatCard = ({ icon, color: iconColor, label, count, isDark: statIsDark }: any) => (
+    <View style={[styles.statCard, { backgroundColor: statIsDark ? "#1C1C1E" : "#FFFFFF" }]}>
+      <View style={[styles.iconCircle, { backgroundColor: iconColor + "15" }]}>
+        <Ionicons name={icon} size={22} color={iconColor} />
+      </View>
+      <Text style={[styles.statCount, { color: statIsDark ? "#FFFFFF" : "#1A1A1E" }]}>{count}</Text>
+      <Text style={styles.statLabel}>{label}</Text>
+    </View>
+  );
 
-    return {
-      allergies: healthProfile.known_allergies?.length || 0,
-      conditions: healthProfile.chronic_conditions?.length || 0,
-      medications: healthProfile.current_medications?.length || 0,
-    };
-  };
+  const MenuItem = ({ icon, label, onPress, isDark: menuIsDark, destructive }: any) => (
+    <TouchableOpacity style={styles.menuItem} onPress={onPress} activeOpacity={0.7}>
+      <View style={[styles.menuIconBox, { backgroundColor: menuIsDark ? "#2C2C2E" : "#F2F4F7" }]}>
+        <Ionicons name={icon} size={20} color={destructive ? "#FF3B30" : (menuIsDark ? "#AEAEB2" : "#636366")} />
+      </View>
+      <Text style={[styles.menuLabel, { color: destructive ? "#FF3B30" : (menuIsDark ? "#FFFFFF" : "#1A1A1E") }]}>
+        {label}
+      </Text>
+      <Ionicons name="chevron-forward" size={18} color={menuIsDark ? "#3A3A3C" : "#C7C7CC"} />
+    </TouchableOpacity>
+  );
 
-  if (loading) {
+  if (loading || !isSynced) {
     return (
-      <SafeAreaView style={styles.safeArea}>
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color={styles.primary.color} />
-          <Text style={styles.loadingText}>Loading profile...</Text>
-        </View>
+      <SafeAreaView style={[styles.safeArea, styles.center]}>
+        <ActivityIndicator size="large" color={color.PRIMARY} />
+        <Text style={styles.loadingText}>Syncing profile...</Text>
       </SafeAreaView>
     );
   }
 
-  const stats = getStatsSummary();
+  const stats = {
+    allergies: healthProfile?.known_allergies?.length || 0,
+    conditions: healthProfile?.chronic_conditions?.length || 0,
+    medications: healthProfile?.current_medications?.length || 0,
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-        {/* Header Section */}
-        <View style={styles.header}>
-          <View style={styles.avatarSection}>
+        <LinearGradient colors={isDark ? ["#1C1C1E", "#0A0A0C"] : ["#FFFFFF", "#F8FBFF"]} style={styles.headerCard}>
+          <View style={styles.avatarWrapper}>
             {userProfile?.avatar_url ? (
-              <Image
-                source={{ uri: userProfile.avatar_url }}
-                style={styles.avatar}
-              />
+              <Image source={{ uri: userProfile.avatar_url }} style={styles.avatar} />
             ) : (
-              <View style={styles.avatarPlaceholder}>
-                <Ionicons
-                  name="person"
-                  size={40}
-                  color={styles.primary.color}
-                />
-              </View>
+              <View style={styles.avatarPlaceholder}><Ionicons name="person" size={40} color={color.PRIMARY} /></View>
             )}
-            <View style={styles.userInfo}>
-              <Text style={styles.userName}>
-                {userProfile?.full_name || "User"}
-              </Text>
-              <Text style={styles.userEmail}>{userProfile?.email}</Text>
-              <Text style={styles.memberSince}>
-                Member since{" "}
-                {new Date(userProfile?.created_at || "").getFullYear()}
-              </Text>
-            </View>
+            <TouchableOpacity style={styles.editAvatarBtn}><Ionicons name="camera" size={16} color="white" /></TouchableOpacity>
           </View>
-        </View>
+          <Text style={styles.userName}>{userProfile?.full_name || "Rakshak User"}</Text>
+          <Text style={styles.userEmail}>{userProfile?.email}</Text>
+          <View style={styles.memberBadge}>
+            <Ionicons name="shield-checkmark" size={14} color={color.PRIMARY} />
+            <Text style={styles.memberSince}>Member since {new Date(userProfile?.created_at || "").getFullYear()}</Text>
+          </View>
+        </LinearGradient>
 
-        {/* Health Stats Overview */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Health Overview</Text>
+          <Text style={styles.sectionTitle}>Medical Overview</Text>
           <View style={styles.statsGrid}>
-            <TouchableOpacity
-              style={styles.statCard}
-              onPress={() => router.push("/profile/health-profile" as any)}
-            >
-              <Ionicons name="medical" size={24} color="#FF6B6B" />
-              <Text style={styles.statNumber}>{stats.allergies}</Text>
-              <Text style={styles.statLabel}>Allergies</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.statCard}
-              onPress={() => router.push("/profile/health-profile" as any)}
-            >
-              <Ionicons name="heart" size={24} color="#4ECDC4" />
-              <Text style={styles.statNumber}>{stats.conditions}</Text>
-              <Text style={styles.statLabel}>Conditions</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.statCard}
-              onPress={() => router.push("/profile/health-profile" as any)}
-            >
-              <Ionicons name="medkit" size={24} color="#45B7D1" />
-              <Text style={styles.statNumber}>{stats.medications}</Text>
-              <Text style={styles.statLabel}>Medications</Text>
-            </TouchableOpacity>
+            <StatCard icon="medical" color="#FF3B30" label="Allergies" count={stats.allergies} isDark={isDark} />
+            <StatCard icon="heart" color="#34C759" label="Chronic" count={stats.conditions} isDark={isDark} />
+            <StatCard icon="medkit" color={color.PRIMARY} label="Active Meds" count={stats.medications} isDark={isDark} />
           </View>
         </View>
 
-        {/* Quick Actions */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Quick Actions</Text>
-          <View style={styles.actionsList}>
-            <TouchableOpacity
-              style={styles.actionItem}
-              onPress={() => router.push("/profile/health-profile" as any)}
-            >
-              <Ionicons name="medical" size={24} color={styles.primary.color} />
-              <Text style={styles.actionText}>Health Profile</Text>
-              <Ionicons
-                name="chevron-forward"
-                size={20}
-                color={styles.secondary.color}
-              />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.actionItem}
-              onPress={() => router.push("/profile/emergency-contacts" as any)}
-            >
-              <Ionicons name="call" size={24} color="#FF9500" />
-              <Text style={styles.actionText}>Emergency Contacts</Text>
-              <Ionicons
-                name="chevron-forward"
-                size={20}
-                color={styles.secondary.color}
-              />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.actionItem}
-              onPress={() => router.push("/profile/notifications" as any)}
-            >
-              <Ionicons name="notifications" size={24} color="#5856D6" />
-              <Text style={styles.actionText}>Notifications</Text>
-              <Ionicons
-                name="chevron-forward"
-                size={20}
-                color={styles.secondary.color}
-              />
-            </TouchableOpacity>
+          <Text style={styles.sectionTitle}>Account & Health</Text>
+          <View style={styles.menuList}>
+            <MenuItem icon="person-outline" label="Personal Details" onPress={() => router.push("/profile/edit" as any)} isDark={isDark} />
+            <MenuItem icon="heart-outline" label="Health Profile" onPress={() => router.push("/profile/health-profile" as any)} isDark={isDark} />
+            <MenuItem icon="notifications-outline" label="Notification Settings" onPress={() => router.push("/profile/notifications" as any)} isDark={isDark} />
+            <MenuItem icon="lock-closed-outline" label="Privacy & Security" onPress={() => router.push("/profile/privacy" as any)} isDark={isDark} />
           </View>
         </View>
 
-        {/* Settings Section */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Settings</Text>
-          <View style={styles.actionsList}>
-            <TouchableOpacity
-              style={styles.actionItem}
-              onPress={() => router.push("/profile/settings" as any)}
-            >
-              <Ionicons
-                name="settings"
-                size={24}
-                color={styles.secondary.color}
-              />
-              <Text style={styles.actionText}>App Settings</Text>
-              <Ionicons
-                name="chevron-forward"
-                size={20}
-                color={styles.secondary.color}
-              />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.actionItem}
-              onPress={() => router.push("/profile/privacy" as any)}
-            >
-              <Ionicons name="shield-checkmark" size={24} color="#34C759" />
-              <Text style={styles.actionText}>Privacy & Security</Text>
-              <Ionicons
-                name="chevron-forward"
-                size={20}
-                color={styles.secondary.color}
-              />
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.actionItem}>
-              <Ionicons name="help-circle" size={24} color="#8E8E93" />
-              <Text style={styles.actionText}>Help & Support</Text>
-              <Ionicons
-                name="chevron-forward"
-                size={20}
-                color={styles.secondary.color}
-              />
-            </TouchableOpacity>
+          <Text style={styles.sectionTitle}>Support</Text>
+          <View style={styles.menuList}>
+            <MenuItem icon="help-circle-outline" label="Help Center" isDark={isDark} />
+            <MenuItem icon="document-text-outline" label="Terms of Service" isDark={isDark} />
+            <MenuItem icon="log-out-outline" label="Sign Out" onPress={handleSignOut} isDark={isDark} destructive />
           </View>
         </View>
 
-        {/* App Info */}
-        <View style={styles.infoSection}>
-          <Text style={styles.infoText}>Medicine Assistant v1.0.0</Text>
-          <Text style={styles.infoSubText}>Your smart health companion</Text>
+        <View style={styles.footer}>
+          <Text style={styles.versionText}>Rakshak v1.1.0</Text>
+          <Text style={styles.creditText}>Securing your health journey</Text>
         </View>
+        <View style={{ height: 100 }} />
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-const createStyles = (colorScheme: "light" | "dark" | null) =>
-  StyleSheet.create({
-    safeArea: {
-      flex: 1,
-      backgroundColor: colorScheme === "dark" ? "#000000" : "#f5f5f5",
-    },
-    container: {
-      flex: 1,
-    },
-    center: {
-      flex: 1,
-      justifyContent: "center",
-      alignItems: "center",
-    },
-    loadingText: {
-      marginTop: 16,
-      fontSize: 16,
-      color: colorScheme === "dark" ? "#8E8E93" : "#666",
-    },
-    header: {
-      backgroundColor: colorScheme === "dark" ? "#1C1C1E" : "white",
-      padding: 20,
-      borderBottomWidth: 1,
-      borderBottomColor: colorScheme === "dark" ? "#38383A" : "#e5e5e5",
-    },
-    avatarSection: {
-      flexDirection: "row",
-      alignItems: "center",
-    },
-    avatar: {
-      width: 80,
-      height: 80,
-      borderRadius: 40,
-    },
-    avatarPlaceholder: {
-      width: 80,
-      height: 80,
-      borderRadius: 40,
-      backgroundColor: colorScheme === "dark" ? "#2C2C2E" : "#e5e5e5",
-      justifyContent: "center",
-      alignItems: "center",
-    },
-    userInfo: {
-      marginLeft: 16,
-      flex: 1,
-    },
-    userName: {
-      fontSize: 24,
-      fontWeight: "bold",
-      color: colorScheme === "dark" ? "#FFFFFF" : "#1a1a1a",
-      marginBottom: 4,
-    },
-    userEmail: {
-      fontSize: 16,
-      color: colorScheme === "dark" ? "#8E8E93" : "#666",
-      marginBottom: 2,
-    },
-    memberSince: {
-      fontSize: 14,
-      color: colorScheme === "dark" ? "#636366" : "#999",
-    },
-    section: {
-      backgroundColor: colorScheme === "dark" ? "#1C1C1E" : "white",
-      marginTop: 16,
-      padding: 20,
-    },
-    sectionTitle: {
-      fontSize: 18,
-      fontWeight: "600",
-      color: colorScheme === "dark" ? "#FFFFFF" : "#1a1a1a",
-      marginBottom: 16,
-    },
-    statsGrid: {
-      flexDirection: "row",
-      justifyContent: "space-between",
-    },
-    statCard: {
-      alignItems: "center",
-      flex: 1,
-      padding: 12,
-    },
-    statNumber: {
-      fontSize: 20,
-      fontWeight: "bold",
-      color: colorScheme === "dark" ? "#FFFFFF" : "#1a1a1a",
-      marginTop: 8,
-    },
-    statLabel: {
-      fontSize: 12,
-      color: colorScheme === "dark" ? "#8E8E93" : "#666",
-      marginTop: 4,
-    },
-    actionsList: {
-      borderRadius: 12,
-      overflow: "hidden",
-    },
-    actionItem: {
-      flexDirection: "row",
-      alignItems: "center",
-      paddingVertical: 16,
-      paddingHorizontal: 12,
-      borderBottomWidth: 1,
-      borderBottomColor: colorScheme === "dark" ? "#38383A" : "#f0f0f0",
-    },
-    actionText: {
-      fontSize: 16,
-      color: colorScheme === "dark" ? "#FFFFFF" : "#1a1a1a",
-      marginLeft: 12,
-      flex: 1,
-    },
-    infoSection: {
-      alignItems: "center",
-      padding: 20,
-      marginTop: 20,
-    },
-    infoText: {
-      fontSize: 14,
-      color: colorScheme === "dark" ? "#8E8E93" : "#666",
-    },
-    infoSubText: {
-      fontSize: 12,
-      color: colorScheme === "dark" ? "#636366" : "#999",
-      marginTop: 4,
-    },
-    primary: {
-      color: colorScheme === "dark" ? "#0A84FF" : "#007AFF",
-    },
-    secondary: {
-      color: colorScheme === "dark" ? "#8E8E93" : "#666",
-    },
-  });
+const createStyles = (isDark: boolean) => StyleSheet.create({
+  safeArea: { flex: 1, backgroundColor: isDark ? "#0A0A0C" : "#F8FBFF" },
+  container: { flex: 1 },
+  center: { justifyContent: "center", alignItems: "center" },
+  loadingText: { marginTop: 16, fontSize: 16, fontFamily: "PoppinsRegular", color: isDark ? "#8E8E93" : "#636366" },
+  headerCard: { alignItems: "center", paddingVertical: 32, paddingHorizontal: 20, borderBottomLeftRadius: 30, borderBottomRightRadius: 30, shadowColor: "#000", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.05, shadowRadius: 20, elevation: 5 },
+  avatarWrapper: { position: 'relative', marginBottom: 16 },
+  avatar: { width: 100, height: 100, borderRadius: 50, borderWidth: 4, borderColor: color.PRIMARY + "20" },
+  avatarPlaceholder: { width: 100, height: 100, borderRadius: 50, backgroundColor: isDark ? "#2C2C2E" : "#F2F4F7", justifyContent: "center", alignItems: "center", borderWidth: 4, borderColor: color.PRIMARY + "20" },
+  editAvatarBtn: { position: 'absolute', bottom: 0, right: 0, backgroundColor: color.PRIMARY, width: 32, height: 32, borderRadius: 16, justifyContent: "center", alignItems: "center", borderWidth: 3, borderColor: isDark ? "#1C1C1E" : "white" },
+  userName: { fontSize: 24, fontFamily: "PoppinsRegular", fontWeight: 'bold', color: isDark ? "#FFFFFF" : "#1A1A1E" },
+  userEmail: { fontSize: 14, fontFamily: "PoppinsRegular", color: isDark ? "#8E8E93" : "#636366", marginTop: 2 },
+  memberBadge: { flexDirection: 'row', alignItems: 'center', marginTop: 12, backgroundColor: color.PRIMARY + "10", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, gap: 6 },
+  memberSince: { fontSize: 12, fontFamily: "PoppinsRegular", color: color.PRIMARY, fontWeight: '600' },
+  section: { paddingHorizontal: 20, marginTop: 24 },
+  sectionTitle: { fontSize: 16, fontFamily: "PoppinsRegular", fontWeight: 'bold', color: isDark ? "#FFFFFF" : "#1A1A1E", marginBottom: 16 },
+  statsGrid: { flexDirection: "row", gap: 12 },
+  statCard: { flex: 1, borderRadius: 20, padding: 16, alignItems: "center", borderWidth: 1, borderColor: isDark ? "#2C2C2E" : "#ECEEF2" },
+  iconCircle: { width: 44, height: 44, borderRadius: 22, justifyContent: "center", alignItems: "center", marginBottom: 10 },
+  statCount: { fontSize: 20, fontFamily: "PoppinsRegular", fontWeight: 'bold' },
+  statLabel: { fontSize: 11, fontFamily: "PoppinsRegular", color: isDark ? "#8E8E93" : "#636366", marginTop: 2 },
+  menuList: { backgroundColor: isDark ? "#1C1C1E" : "#FFFFFF", borderRadius: 24, paddingVertical: 8, borderWidth: 1, borderColor: isDark ? "#2C2C2E" : "#ECEEF2" },
+  menuItem: { flexDirection: "row", alignItems: "center", paddingVertical: 14, paddingHorizontal: 16 },
+  menuIconBox: { width: 40, height: 40, borderRadius: 12, justifyContent: "center", alignItems: "center", marginRight: 14 },
+  menuLabel: { flex: 1, fontSize: 15, fontFamily: "PoppinsRegular", fontWeight: '500' },
+  footer: { alignItems: "center", marginTop: 40, paddingBottom: 20 },
+  versionText: { fontSize: 14, fontFamily: "PoppinsRegular", color: isDark ? "#3A3A3C" : "#AEAEB2", fontWeight: '600' },
+  creditText: { fontSize: 12, fontFamily: "PoppinsRegular", color: isDark ? "#2C2C2E" : "#D1D1D6", marginTop: 4 },
+});

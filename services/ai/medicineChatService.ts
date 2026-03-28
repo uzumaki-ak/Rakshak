@@ -2,16 +2,17 @@ import { Medicine } from '@/types/medicine';
 import * as Speech from 'expo-speech';
 
 /**
- * Medicine Chatbot Service
- * Multilingual AI assistant for medicine questions with TTS support
+ * MedicineChatService
+ * AI Health Assistant for medicine-related queries.
+ * Powered by Gemini AI with multilingual support and Text-to-Speech integration.
  */
 export class MedicineChatService {
   private static instance: MedicineChatService;
-  private euriApiKey: string;
-  private apiBaseUrl: string = 'https://api.euron.one/api/v1/euri/chat/completions';
+  private geminiApiKey: string;
 
   private constructor() {
-    this.euriApiKey = process.env.EXPO_PUBLIC_EURI_API_KEY || '';
+    this.geminiApiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY || '';
+    if (!this.geminiApiKey) console.warn('⚠️ MedicineChatService: Gemini API key missing.');
   }
 
   public static getInstance(): MedicineChatService {
@@ -22,252 +23,96 @@ export class MedicineChatService {
   }
 
   /**
-   * Ask question about a specific medicine
+   * Ask the AI assistant a question regarding a specific medicine.
    */
   async askAboutMedicine(
     medicine: Medicine,
     question: string,
-    chatHistory: Array<{ role: string; content: string }>
-  ): Promise<{
-    answer: string;
-    language: string;
-    canSpeak: boolean;
-  }> {
+    chatHistory: Array<{ role: 'user' | 'model'; parts: { text: string }[] }>
+  ): Promise<{ answer: string; canSpeak: boolean }> {
+    if (!this.geminiApiKey) {
+      return { answer: "Assistant is offline. Please configure API keys.", canSpeak: false };
+    }
+
     try {
-      if (!this.euriApiKey) {
-        return {
-          answer: 'API key not configured. Please add EXPO_PUBLIC_EURI_API_KEY to your .env file.',
-          language: 'en',
-          canSpeak: false,
-        };
-      }
-
-      // Detect question language
-      const detectedLanguage = this.detectLanguage(question);
-
-      // Build context-aware prompt
-      const systemPrompt = this.buildSystemPrompt(medicine, detectedLanguage);
-
-      // Build conversation history for Euron API
-      const messages = [
-        {
-          role: 'system',
-          content: systemPrompt
-        },
-        ...chatHistory.map(msg => ({
-          role: msg.role === 'user' ? 'user' : 'assistant',
-          content: msg.content
-        })),
-        {
-          role: 'user',
-          content: question
-        }
+      const systemContext = this.buildSystemPrompt(medicine);
+      
+      const contents = [
+        { role: 'user', parts: [{ text: systemContext }] },
+        { role: 'model', parts: [{ text: "Understood. I am your Rakshak Health Assistant. I will provide accurate, helpful, and safe information about this medicine while always including the required medical disclaimer." }] },
+        ...chatHistory,
+        { role: 'user', parts: [{ text: question }] }
       ];
 
-      console.log('🤖 Asking Euron AI about medicine:', medicine.name);
-
-      const response = await fetch(this.apiBaseUrl, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.euriApiKey}`
-        },
-        body: JSON.stringify({
-          messages,
-          model: 'gpt-4.1-nano', // Using the model from your example
-          max_tokens: 1024,
-          temperature: 0.7,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('❌ Euron API error:', errorText);
-        throw new Error(`Euron API error: ${response.status}`);
-      }
-
-      const data = await response.json();
-
-      if (!data.choices || data.choices.length === 0) {
-        throw new Error('No response from AI');
-      }
-
-      const answer = data.choices[0].message.content;
-
-      console.log('✅ Got answer from Euron AI');
-
-      return {
-        answer: answer.trim(),
-        language: detectedLanguage,
-        canSpeak: true,
-      };
-
-    } catch (error) {
-      console.error('❌ Medicine chat error:', error);
-      return {
-        answer: 'Sorry, I could not process your question. Please try again.',
-        language: 'en',
-        canSpeak: false,
-      };
-    }
-  }
-
-  /**
-   * Speak the answer using Text-to-Speech
-   */
-  async speakAnswer(text: string, language: string): Promise<void> {
-    try {
-      // Stop any ongoing speech
-      await Speech.stop();
-
-      // Get voice for language
-      const voices = await Speech.getAvailableVoicesAsync();
-      const languageVoice = voices.find(v => 
-        v.language.startsWith(this.getLanguageCode(language))
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${this.geminiApiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents,
+            generationConfig: { temperature: 0.7, maxOutputTokens: 1024 }
+          }),
+        }
       );
 
-      await Speech.speak(text, {
-        language: this.getLanguageCode(language),
-        voice: languageVoice?.identifier,
-        pitch: 1.0,
-        rate: 0.9,
-      });
+      if (!response.ok) throw new Error(`Gemini API Error: ${response.status}`);
 
-      console.log('🔊 Speaking answer');
+      const data = await response.json();
+      const answer = data.candidates?.[0]?.content?.parts?.[0]?.text || "I'm sorry, I couldn't formulate a response. Please try again.";
 
+      return { answer, canSpeak: true };
     } catch (error) {
-      console.error('❌ TTS error:', error);
+      console.error('AI Chat Error:', error);
+      return { answer: "Something went wrong with our AI servers. Please try again later.", canSpeak: false };
     }
   }
 
   /**
-   * Stop speaking
+   * Speak the response using device TTS.
    */
+  async speakAnswer(text: string, language: string = 'en-US'): Promise<void> {
+    try {
+      await Speech.stop();
+      await Speech.speak(text, { language, rate: 0.95 });
+    } catch (error) {
+      console.warn('TTS Failed:', error);
+    }
+  }
+
   async stopSpeaking(): Promise<void> {
     await Speech.stop();
   }
 
-  /**
-   * Detect language from question
-   */
-  private detectLanguage(text: string): string {
-    // Hindi detection
-    const hindiPattern = /[\u0900-\u097F]/;
-    if (hindiPattern.test(text)) return 'hindi';
+  private buildSystemPrompt(medicine: Medicine): string {
+    const isToday = new Date().toISOString().split('T')[0];
+    const status = medicine.expiry_date && new Date(medicine.expiry_date) < new Date() ? 'EXPIRED' : 'VALID';
 
-    // Japanese detection
-    const japanesePattern = /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF]/;
-    if (japanesePattern.test(text)) return 'japanese';
+    return `
+      You are Rakshak AI, a high-end medical assistant.
+      The user is asking about the following medicine in their inventory:
+      - Name: ${medicine.name}
+      - Generic: ${medicine.generic_name || 'N/A'}
+      - Strength: ${medicine.strength || 'N/A'}
+      - Expiry: ${medicine.expiry_date || 'Unknown'} (Currently ${status})
+      - Status: ${medicine.status}
+      - Notes: ${medicine.notes || 'None'}
 
-    // Chinese detection
-    const chinesePattern = /[\u4E00-\u9FFF]/;
-    if (chinesePattern.test(text)) return 'chinese';
-
-    // Arabic detection
-    const arabicPattern = /[\u0600-\u06FF]/;
-    if (arabicPattern.test(text)) return 'arabic';
-
-    // Default to English
-    return 'english';
+      Guidelines:
+      1. Be professional, empathetic, and accurate.
+      2. If the medicine is ${status === 'EXPIRED' ? 'EXPIRED' : 'N/A'}, emphasize that it should NOT be consumed.
+      3. For dosage, always refer back to what is written on the package or what the doctor prescribed.
+      4. Always append: "⚠️ Disclaimer: This is AI-generated advice. Consult a licensed physician for medical decisions."
+      5. Today is ${isToday}.
+    `;
   }
 
-  /**
-   * Get language code for TTS
-   */
-  private getLanguageCode(language: string): string {
-    const codes: Record<string, string> = {
-      'english': 'en-US',
-      'hindi': 'hi-IN',
-      'japanese': 'ja-JP',
-      'chinese': 'zh-CN',
-      'arabic': 'ar-SA',
-      'spanish': 'es-ES',
-      'french': 'fr-FR',
-      'german': 'de-DE',
-    };
-
-    return codes[language] || 'en-US';
-  }
-
-  /**
-   * Build system prompt for medicine chat
-   */
-  private buildSystemPrompt(medicine: Medicine, language: string): string {
-    const languageInstructions: Record<string, string> = {
-      'hindi': 'You must respond in Hindi (Devanagari script). Always answer in Hindi language.',
-      'japanese': 'You must respond in Japanese. Always answer in Japanese language.',
-      'chinese': 'You must respond in Simplified Chinese. Always answer in Chinese language.',
-      'arabic': 'You must respond in Arabic. Always answer in Arabic language.',
-      'english': 'You must respond in English.',
-    };
-
-    const langInstruction = languageInstructions[language] || languageInstructions['english'];
-
-    return `You are a helpful medicine information assistant. ${langInstruction}
-
-Medicine Details:
-- Name: ${medicine.name}
-- Generic Name: ${medicine.generic_name || 'Not specified'}
-- Strength: ${medicine.strength || 'Not specified'}
-- Expiry Date: ${medicine.expiry_date || 'Not specified'}
-- Manufacturer: ${medicine.manufacturer || 'Not specified'}
-- Dosage Instructions: ${medicine.dosage_instructions || 'Not specified'}
-- Notes: ${medicine.notes || 'None'}
-
-You can answer questions about:
-1. What this medicine is used for
-2. How to take it properly
-3. Side effects and precautions
-4. Whether it's expired (check against current date: ${new Date().toISOString().split('T')[0]})
-5. Drug interactions
-6. Storage instructions
-7. General medical advice
-
-IMPORTANT DISCLAIMERS:
-- Always include: "⚠️ This is general information. Consult your doctor for medical advice."
-- If the medicine is expired, warn the user NOT to take it
-- For serious questions, suggest consulting a healthcare professional
-- Do NOT provide dosage advice beyond what's already specified
-
-${langInstruction} Answer naturally and helpfully.`;
-  }
-
-  /**
-   * Check if medicine is expired
-   */
-  isMedicineExpired(expiryDate: string | undefined): boolean {
-    if (!expiryDate) return false;
-    return new Date(expiryDate) < new Date();
-  }
-
-  /**
-   * Generate quick suggestions for common questions
-   */
-  getQuickQuestions(medicine: Medicine, language: string): string[] {
-    const questions: Record<string, string[]> = {
-      'english': [
-        'What is this medicine used for?',
-        'How should I take this?',
-        'What are the side effects?',
-        'Is it expired?',
-        'Can I take it with other medicines?',
-      ],
-      'hindi': [
-        'यह दवा किसलिए है?',
-        'इसे कैसे लें?',
-        'साइड इफेक्ट क्या हैं?',
-        'क्या यह expired है?',
-        'क्या अन्य दवाओं के साथ ले सकते हैं?',
-      ],
-      'japanese': [
-        'この薬は何に使用されますか？',
-        'どのように服用すべきですか？',
-        '副作用は何ですか？',
-        '期限切れですか？',
-        '他の薬と一緒に飲めますか？',
-      ],
-    };
-
-    return questions[language] || questions['english'];
+  getQuickQuestions(medicine: Medicine): string[] {
+    return [
+      `What is ${medicine.name} used for?`,
+      `How should I store this?`,
+      `Are there any side effects?`,
+      `Can I take this with food?`
+    ];
   }
 }

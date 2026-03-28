@@ -1,6 +1,5 @@
-import { supabase } from "@/config/SupabaseConfig";
 import color from "@/shared/color";
-import { useAuth, useSSO, useUser } from "@clerk/clerk-expo";
+import { useAuth, useSSO } from "@clerk/clerk-expo";
 import * as AuthSession from "expo-auth-session";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
@@ -22,6 +21,10 @@ import {
 } from "react-native";
 import Typewriter from "./../components/type-writer";
 
+/**
+ * useWarmUpBrowser
+ * Optimization for expo-web-browser to speed up login redirect
+ */
 export const useWarmUpBrowser = () => {
   useEffect(() => {
     void WebBrowser.warmUpAsync();
@@ -33,344 +36,66 @@ export const useWarmUpBrowser = () => {
 
 WebBrowser.maybeCompleteAuthSession();
 
-interface UserProfile {
-  clerk_user_id: string;
-  email: string;
-  full_name?: string;
-  first_name?: string;
-  last_name?: string;
-  phone?: string;
-  avatar_url?: string;
-  country?: string;
-  timezone?: string;
-  preferred_language?: string;
-  push_notifications_enabled?: boolean;
-  email_notifications_enabled?: boolean;
-  reminder_notifications_enabled?: boolean;
-  data_sharing_consent?: boolean;
-  analytics_consent?: boolean;
-  marketing_consent?: boolean;
-  last_login_at?: string;
-}
-
 export default function Index() {
-  // ALWAYS call hooks in the same order and unconditionally:
-  const scheme = useColorScheme(); // moved to top to fix hook-order issues
+  const scheme = useColorScheme();
   const effective = scheme === "dark" ? "dark" : "light";
   const theme = themeStyles(effective);
 
-  const { isSignedIn } = useAuth();
+  const { isSignedIn, isLoaded } = useAuth();
   const router = useRouter();
-  const { user } = useUser();
   const [loading, setLoading] = useState(true);
   const [loginLoading, setLoginLoading] = useState(false);
 
-  useEffect(() => {
-    console.log("Auth state changed:", { isSignedIn });
+  const { startSSOFlow } = useSSO();
 
-    if (isSignedIn) {
+  // Redirect if already signed in
+  useEffect(() => {
+    if (isLoaded && isSignedIn) {
       router.replace("/(tabs)/Home");
     }
-    if (isSignedIn !== undefined) {
+    if (isLoaded) {
       setLoading(false);
     }
-  }, [isSignedIn]);
+  }, [isSignedIn, isLoaded]);
 
   useWarmUpBrowser();
 
-  const { startSSOFlow } = useSSO();
-
-  // Helper: robust email extraction + fallback
-  const extractClerkEmail = (clerkUser: any) => {
-    const email =
-      clerkUser?.emailAddress ??
-      clerkUser?.email ??
-      clerkUser?.primaryEmailAddress?.emailAddress ??
-      clerkUser?.emailAddresses?.[0]?.emailAddress ??
-      clerkUser?.userData?.email ??
-      null;
-
-    if (!email) {
-      const fallback = `unknown+${clerkUser?.id ?? Date.now()}@example.com`;
-      console.warn(
-        "Clerk user missing email — using fallback synthetic email:",
-        fallback,
-        "Full clerk object:",
-        JSON.stringify(clerkUser, null, 2)
-      );
-      return fallback;
-    }
-    return email;
-  };
-
-  // Function to create or update user in Supabase
-  const createOrUpdateUserInSupabase = async (
-    clerkUser: any,
-    isNewUser: boolean = false
-  ) => {
-    try {
-      console.log("Creating/updating user in Supabase:", clerkUser.id);
-
-      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-      const locale = Intl.DateTimeFormat().resolvedOptions().locale;
-      const country = locale.split("-")[1] || "US";
-
-      const resolvedEmail = extractClerkEmail(clerkUser);
-
-      const userData: UserProfile = {
-        clerk_user_id: clerkUser.id,
-        email: resolvedEmail,
-        full_name:
-          clerkUser.fullName ||
-          `${clerkUser.firstName || ""} ${clerkUser.lastName || ""}`.trim(),
-        first_name: clerkUser.firstName,
-        last_name: clerkUser.lastName,
-        phone:
-          clerkUser.primaryPhoneNumber?.phoneNumber ||
-          clerkUser.phoneNumbers?.[0]?.phoneNumber,
-        avatar_url: clerkUser.imageUrl,
-        country: country,
-        timezone: timezone,
-        preferred_language: locale.split("-")[0] || "en",
-        push_notifications_enabled: true,
-        email_notifications_enabled: true,
-        reminder_notifications_enabled: true,
-        data_sharing_consent: false,
-        analytics_consent: false,
-        marketing_consent: false,
-        last_login_at: new Date().toISOString(),
-      };
-
-      if (isNewUser) {
-        const { data, error } = await supabase
-          .from("users")
-          .insert([userData])
-          .select()
-          .single();
-
-        if (error) {
-          console.error("Error creating user in Supabase:", error);
-          throw error;
-        }
-
-        console.log("New user created successfully in Supabase:", data);
-
-        await createDefaultHealthProfile(data.id);
-
-        return data;
-      } else {
-        const { data, error } = await supabase
-          .from("users")
-          .update({
-            full_name: userData.full_name,
-            first_name: userData.first_name,
-            last_name: userData.last_name,
-            phone: userData.phone,
-            avatar_url: userData.avatar_url,
-            last_login_at: userData.last_login_at,
-          })
-          .eq("clerk_user_id", clerkUser.id)
-          .select()
-          .single();
-
-        if (error) {
-          console.error("Error updating user in Supabase:", error);
-          throw error;
-        }
-
-        console.log("User updated successfully in Supabase:", data);
-        return data;
-      }
-    } catch (error) {
-      console.error("Error in createOrUpdateUserInSupabase:", error);
-      throw error;
-    }
-  };
-
-  // Function to create default health profile
-  const createDefaultHealthProfile = async (userId: string) => {
-    try {
-      const { error } = await supabase.from("user_health_profiles").insert([
-        {
-          user_id: userId,
-          known_allergies: [],
-          chronic_conditions: [],
-          current_medications: [],
-        },
-      ]);
-
-      if (error) {
-        console.error("Error creating health profile:", error);
-      } else {
-        console.log("Default health profile created");
-      }
-    } catch (error) {
-      console.error("Error in createDefaultHealthProfile:", error);
-    }
-  };
-
-  // Function to check if user exists in Supabase
-  const checkUserExists = async (clerkUserId: string) => {
-    try {
-      const { data, error } = await supabase
-        .from("users")
-        .select("id, clerk_user_id")
-        .eq("clerk_user_id", clerkUserId)
-        .single();
-
-      if (error && error.code !== "PGRST116") {
-        console.error("Error checking user existence:", error);
-        return null;
-      }
-
-      return data;
-    } catch (error) {
-      console.error("Error in checkUserExists:", error);
-      return null;
-    }
-  };
-
-  // Function to log user activity
-  const logUserActivity = async (
-    userId: string,
-    activityType: string,
-    activityData: any = {}
-  ) => {
-    try {
-      await supabase.from("user_activities").insert([
-        {
-          user_id: userId,
-          activity_type: activityType,
-          activity_data: activityData,
-          platform: Platform.OS,
-          app_version: "1.0.0",
-        },
-      ]);
-    } catch (error) {
-      console.error("Error logging user activity:", error);
-    }
-  };
-
+  /**
+   * onLoginPress
+   * Triggers Clerk OAuth flow. 
+   * Global synchronization is handled by RootLayout's SyncWrapper.
+   */
   const onLoginPress = useCallback(async () => {
-    console.log("Login button pressed");
+    if (loginLoading) return;
+    
     setLoginLoading(true);
-
     try {
-      console.log("Starting SSO flow...");
-
-      const result = await startSSOFlow({
+      const { createdSessionId, setActive } = await startSSOFlow({
         strategy: "oauth_google",
         redirectUrl: AuthSession.makeRedirectUri({
-          scheme: "your-app-scheme",
+          scheme: "rakshak", // Ensure this matches your app.json scheme
         }),
       });
 
-      console.log("SSO flow result:", result);
-
-      const { createdSessionId, setActive, signIn, signUp } = result;
-
-      if (signUp) {
-        console.log("New user signup detected");
-        try {
-          await createOrUpdateUserInSupabase(signUp, true);
-          console.log("New user document created successfully in Supabase");
-        } catch (supabaseError) {
-          console.error(
-            "Error creating user document in Supabase:",
-            supabaseError
-          );
-          Alert.alert(
-            "Account Created",
-            "Your account was created but some features may not work properly. Please contact support if issues persist."
-          );
-        }
-      }
-
-      // In your onLoginPress function, replace this section:
-      if (signIn && signIn.status === "complete") {
-        console.log("Existing user login detected");
-        try {
-          if (signIn.id) {
-            const existingUser = await checkUserExists(signIn.id);
-            if (existingUser) {
-              await createOrUpdateUserInSupabase(signIn, false);
-              await logUserActivity(existingUser.id, "login", {
-                login_method: "google_oauth",
-                timestamp: new Date().toISOString(),
-              });
-            } else {
-              await createOrUpdateUserInSupabase(signIn, true);
-            }
-          } else {
-            console.error(
-              "signIn.id is undefined, cannot check user existence."
-            );
-            // Fallback: try to create/update with the Clerk user object directly
-            await createOrUpdateUserInSupabase(signIn, true);
-          }
-        } catch (supabaseError) {
-          console.error(
-            "Error handling existing user in Supabase:",
-            supabaseError
-          );
-        }
-      }
-
-      if (createdSessionId) {
-        console.log("Setting active session...");
-        if (typeof setActive === "function") {
-          await setActive({
-            session: createdSessionId,
-          });
-        } else {
-          console.warn("setActive is undefined, cannot set active session.");
-        }
-      } else if (signIn && signIn.status !== "complete") {
-        console.log("Sign in incomplete, additional steps required");
-        Alert.alert(
-          "Additional Verification Required",
-          "Please complete the verification process."
-        );
+      if (createdSessionId && setActive) {
+        await setActive({ session: createdSessionId });
       }
     } catch (err) {
-      console.error("Login error:", JSON.stringify(err, null, 2));
-
-      let errorMessage = "Something went wrong. Please try again.";
-
-      if (
-        typeof err === "object" &&
-        err !== null &&
-        "code" in err &&
-        typeof (err as { code?: unknown }).code === "string"
-      ) {
-        const errorCode = (err as { code: string }).code;
-        if (errorCode === "form_identifier_not_found") {
-          errorMessage =
-            "Account not found. Please check your email or sign up.";
-        } else if (errorCode === "session_exists") {
-          errorMessage = "You're already signed in.";
-        } else if (errorCode.includes("network")) {
-          errorMessage =
-            "Network error. Please check your connection and try again.";
-        }
-      }
-
-      Alert.alert("Login Error", errorMessage);
+      console.error("Login Error:", err);
+      Alert.alert(
+        "Login Failed",
+        "Could not sign in with Google. Please try again."
+      );
     } finally {
       setLoginLoading(false);
     }
-  }, [startSSOFlow, router]);
+  }, [startSSOFlow, loginLoading]);
 
-  if (loading) {
+  // Loading state
+  if (loading || (isLoaded && isSignedIn)) {
     return (
-      <View
-        style={[
-          styles.container,
-          styles.centered,
-          { backgroundColor: theme.background },
-        ]}
-      >
-        <ActivityIndicator size="large" color={color.WHITE} />
+      <View style={[styles.container, styles.centered, { backgroundColor: theme.background }]}>
+        <ActivityIndicator size="large" color={"#A67B2A"} />
       </View>
     );
   }
@@ -392,9 +117,9 @@ export default function Index() {
       <View style={styles.content}>
         <Typewriter
           texts={[
-            "Welcome to Medicine Assistant",
+            "Welcome to Rakshak",
             "दवा सहायक में आपका स्वागत है",
-            "薬のアシスタントへようこそ",
+            "Your Smart Medicine Guide",
           ]}
           typingSpeed={100}
           deleteSpeed={100}
@@ -409,7 +134,7 @@ export default function Index() {
         </Text>
       </View>
 
-      {/* Animated / polished Login Button (keeps same behavior) */}
+      {/* Animated Login Button */}
       <AnimatedLoginButton
         onPress={onLoginPress}
         loading={loginLoading}
@@ -419,10 +144,6 @@ export default function Index() {
   );
 }
 
-/* Animated Login Button component:
-   - Uses Animated for press-scale + subtle pulse + shimmer
-   - Keeps same onPress and disabled behavior as original TouchableOpacity
-*/
 function AnimatedLoginButton({
   onPress,
   loading,
@@ -436,7 +157,7 @@ function AnimatedLoginButton({
   const pulse = useRef(new Animated.Value(0)).current;
   const shimmer = useRef(new Animated.Value(-1)).current;
 
-  React.useEffect(() => {
+  useEffect(() => {
     const pulseLoop = Animated.loop(
       Animated.sequence([
         Animated.timing(pulse, {
@@ -453,12 +174,11 @@ function AnimatedLoginButton({
         }),
       ])
     );
-
     pulseLoop.start();
     return () => pulseLoop.stop();
   }, [pulse]);
 
-  React.useEffect(() => {
+  useEffect(() => {
     const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(shimmer, {

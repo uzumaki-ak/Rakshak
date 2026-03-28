@@ -1,7 +1,7 @@
 import { useUser } from "@clerk/clerk-expo";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -13,23 +13,28 @@ import {
   TouchableOpacity,
   useColorScheme,
   View,
+  TextInput,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-
 import { supabase } from "@/config/SupabaseConfig";
 import { SupabaseScanService } from "@/services/supabase/scans";
 import { ScanFormData, ScanResult } from "@/types/scan";
+import color from "@/shared/color";
+import { useUserSync } from "@/hooks/useUserSync";
 
 /**
- * OCR Results Screen
- * Shows extracted data from scan and allows user to confirm/edit before saving
+ * OCRResultsScreen
+ * Review and edit AI-extracted medicine data before saving.
+ * Refactored for premium UI consistency and robust data integration.
  */
 export default function OCRResultsScreen() {
   const { scanId } = useLocalSearchParams<{ scanId: string }>();
   const { user } = useUser();
+  const { isSynced } = useUserSync();
   const router = useRouter();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
+  const styles = createStyles(isDark);
 
   const scanService = SupabaseScanService.getInstance();
 
@@ -53,33 +58,21 @@ export default function OCRResultsScreen() {
     barcode: "",
   });
 
-  /**
-   * Load scan data
-   */
-  useEffect(() => {
-    if (user && scanId) {
-      loadScanData();
-    }
-  }, [user, scanId]);
+  const loadScanData = useCallback(async () => {
+    if (!user || !scanId || !isSynced) return;
 
-  /**
-   * Fetch scan details and populate form
-   */
-  const loadScanData = async () => {
     try {
       setLoading(true);
-
-      const scanData = await scanService.getScanById(scanId, user!.id);
+      const scanData = await scanService.getScanById(scanId, user.id);
 
       if (!scanData) {
-        Alert.alert("Error", "Scan not found");
+        Alert.alert("Not Found", "We couldn't retrieve this scan record.");
         router.back();
         return;
       }
 
       setScan(scanData);
 
-      // Pre-fill form with parsed data
       if (scanData.parsed_data) {
         setFormData({
           name: scanData.parsed_data.name || "",
@@ -99,60 +92,41 @@ export default function OCRResultsScreen() {
         });
       }
     } catch (error) {
-      console.error("Error loading scan:", error);
-      Alert.alert("Error", "Failed to load scan data");
+      console.error("Load Scan Error:", error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [user, scanId, isSynced, scanService, router]);
 
-  /**
-   * Update form field
-   */
+  useEffect(() => {
+    loadScanData();
+  }, [loadScanData]);
+
   const updateField = (field: keyof ScanFormData, value: any) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
-  /**
-   * Get confidence indicator
-   */
-  const getConfidenceColor = (confidence?: number): string => {
-    if (!confidence) return isDark ? "#636366" : "#8E8E93";
-    if (confidence >= 0.8) return isDark ? "#30D158" : "#28A745";
-    if (confidence >= 0.6) return isDark ? "#FF9F0A" : "#FFC107";
-    return isDark ? "#FF453A" : "#DC3545";
-  };
-
-  /**
-   * Save medicine to database
-   */
   const handleSave = async () => {
-    // Validate required fields
     if (!formData.name.trim()) {
-      Alert.alert("Validation Error", "Medicine name is required");
+      Alert.alert("Required", "Medicine name is needed to save.");
       return;
     }
 
     setSaving(true);
-
     try {
-      // Get user UUID
-      const { data: userData, error: userError } = await supabase
+      const { data: dbUser } = await supabase
         .from("users")
         .select("id")
         .eq("clerk_user_id", user!.id)
         .single();
 
-      if (userError || !userData) {
-        throw new Error("User not found");
-      }
+      if (!dbUser) throw new Error("User disconnected.");
 
-      // Insert medicine
-      const { data: medicine, error: medicineError } = await supabase
+      const { data: medicine, error: medError } = await supabase
         .from("medicines")
         .insert([
           {
-            user_id: userData.id,
+            user_id: dbUser.id,
             name: formData.name.trim(),
             generic_name: formData.generic_name?.trim(),
             brand_name: formData.brand_name?.trim(),
@@ -167,627 +141,267 @@ export default function OCRResultsScreen() {
             batch_number: formData.batch_number?.trim(),
             manufacturer: formData.manufacturer?.trim(),
             barcode: formData.barcode?.trim(),
-            status: "active",
             is_shared: false,
             is_donated: false,
-            currency: "GBP",
+            status: "active",
+            currency: "GBP"
           },
         ])
         .select()
         .single();
 
-      if (medicineError) throw medicineError;
+      if (medError) throw medError;
 
-      // Link scan to medicine
-      await scanService.linkScanToMedicine(scanId, medicine.id, user!.id);
+      await scanService.linkScanToMedicine(scanId!, medicine.id, user!.id);
 
-      Alert.alert("Success", "Medicine added successfully!", [
-        {
-          text: "View Medicine",
-          onPress: () => router.replace(`/medicines/${medicine.id}`),
-        },
-        {
-          text: "Done",
-          onPress: () => router.replace("/medicines" as any),
-        },
+      Alert.alert("Success", "Medicine secured and added to inventory!", [
+        { text: "View Detail", onPress: () => router.replace(`/medicines/${medicine.id}`) },
+        { text: "Finish", onPress: () => router.replace("/(tabs)/Medicine" as any) },
       ]);
     } catch (error) {
-      console.error("Error saving medicine:", error);
-      Alert.alert("Error", "Failed to save medicine");
+      console.error("Save Error:", error);
+      Alert.alert("Error", "Failed to save medicine data.");
     } finally {
       setSaving(false);
     }
   };
 
-  if (loading) {
+  const EditableField = ({ label, value, onChange, placeholder, isDark: fieldIsDark, required, icon, ...props }: any) => (
+    <View style={styles.fieldWrapper}>
+      <View style={styles.labelRow}>
+        <Text style={styles.fieldLabel}>{label} {required && "*"}</Text>
+      </View>
+      <View style={[styles.inputBox, { backgroundColor: fieldIsDark ? "#2C2C2E" : "#F2F4F7" }]}>
+        {icon && <Ionicons name={icon} size={18} color="#8E8E93" style={{ marginRight: 10 }} />}
+        <TextInput
+          style={[styles.input, { color: fieldIsDark ? "#FFFFFF" : "#1A1A1E" }]}
+          value={value}
+          onChangeText={onChange}
+          placeholder={placeholder || `Enter ${label.toLowerCase()}`}
+          placeholderTextColor="#636366"
+          {...props}
+        />
+      </View>
+    </View>
+  );
+
+  if (loading || !isSynced) {
     return (
-      <SafeAreaView
-        style={[
-          styles.container,
-          { backgroundColor: isDark ? "#000000" : "#F8F9FA" },
-        ]}
-      >
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator
-            size="large"
-            color={isDark ? "#0A84FF" : "#007AFF"}
-          />
-          <Text
-            style={[
-              styles.loadingText,
-              { color: isDark ? "#FFFFFF" : "#1D1D1F" },
-            ]}
-          >
-            Loading scan results...
-          </Text>
-        </View>
+      <SafeAreaView style={[styles.container, styles.center]}>
+        <ActivityIndicator size="large" color={color.PRIMARY} />
+        <Text style={styles.loadingText}>Verifying AI Extraction...</Text>
       </SafeAreaView>
     );
   }
 
-  if (!scan) {
-    return (
-      <SafeAreaView
-        style={[
-          styles.container,
-          { backgroundColor: isDark ? "#000000" : "#F8F9FA" },
-        ]}
-      >
-        <View style={styles.loadingContainer}>
-          <Ionicons
-            name="alert-circle"
-            size={64}
-            color={isDark ? "#FF453A" : "#DC3545"}
-          />
-          <Text
-            style={[
-              styles.errorText,
-              { color: isDark ? "#FFFFFF" : "#1D1D1F" },
-            ]}
-          >
-            Scan not found
-          </Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
+  const confidence = scan?.confidence_score || 0;
+  const confidenceColor = confidence > 0.8 ? "#34C759" : confidence > 0.5 ? "#FF9500" : "#FF3B30";
 
   return (
-    <SafeAreaView
-      style={[
-        styles.container,
-        { backgroundColor: isDark ? "#000000" : "#F8F9FA" },
-      ]}
-    >
+    <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView
-        style={styles.container}
+        style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
       >
-        {/* Header */}
-        <View
-          style={[
-            styles.header,
-            { backgroundColor: isDark ? "#1C1C1E" : "#FFFFFF" },
-          ]}
-        >
-          <TouchableOpacity
-            onPress={() => router.back()}
-            style={styles.backButton}
-          >
-            <Ionicons
-              name="close"
-              size={24}
-              color={isDark ? "#0A84FF" : "#007AFF"}
-            />
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+            <Ionicons name="chevron-back" size={24} color={isDark ? "#FFFFFF" : "#1A1A1E"} />
           </TouchableOpacity>
-          <Text
-            style={[styles.title, { color: isDark ? "#FFFFFF" : "#1D1D1F" }]}
-          >
-            Confirm Details
-          </Text>
-          <TouchableOpacity
-            onPress={handleSave}
-            style={styles.saveButton}
-            disabled={saving}
-          >
-            <Text
-              style={[
-                styles.saveText,
-                { color: isDark ? "#0A84FF" : "#007AFF" },
-              ]}
-            >
-              {saving ? "Saving..." : "Save"}
-            </Text>
+          <Text style={styles.headerTitle}>Review Results</Text>
+          <TouchableOpacity onPress={handleSave} disabled={saving}>
+            {saving ? <ActivityIndicator size="small" color={color.PRIMARY} /> : (
+              <Text style={styles.saveText}>Save</Text>
+            )}
           </TouchableOpacity>
         </View>
 
-        <ScrollView
-          style={styles.content}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-          contentContainerStyle={{
-            paddingBottom: Platform.OS === "android" ? 100 : 50,
-          }}
-        >
-          {/* Confidence Score */}
-          {scan.confidence_score !== undefined && (
-            <View
-              style={[
-                styles.confidenceCard,
-                { backgroundColor: isDark ? "#1C1C1E" : "#FFFFFF" },
-              ]}
-            >
-              <View style={styles.confidenceHeader}>
-                <Ionicons
-                  name="analytics"
-                  size={20}
-                  color={getConfidenceColor(scan.confidence_score)}
-                />
-                <Text
-                  style={[
-                    styles.confidenceTitle,
-                    { color: isDark ? "#FFFFFF" : "#1D1D1F" },
-                  ]}
-                >
-                  Extraction Confidence
-                </Text>
-              </View>
-              <View style={styles.confidenceBar}>
-                <View
-                  style={[
-                    styles.confidenceBarFill,
-                    {
-                      width: `${scan.confidence_score * 100}%`,
-                      backgroundColor: getConfidenceColor(
-                        scan.confidence_score
-                      ),
-                    },
-                  ]}
-                />
-              </View>
-              <Text
-                style={[
-                  styles.confidenceText,
-                  { color: isDark ? "#8E8E93" : "#636366" },
-                ]}
-              >
-                {Math.round(scan.confidence_score * 100)}% confidence • Please
-                verify the extracted data
+        <ScrollView style={styles.content} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 100 }}>
+          {/* Confidence Indicator */}
+          <View style={[styles.confidenceCard, { backgroundColor: isDark ? "#1C1C1E" : "#FFFFFF" }]}>
+            <View style={styles.confHeader}>
+              <Ionicons name="shield-checkmark" size={18} color={confidenceColor} />
+              <Text style={[styles.confLabel, { color: isDark ? "#FFFFFF" : "#1A1A1E" }]}>AI Confidence Rating</Text>
+              <Text style={[styles.confPercent, { color: confidenceColor }]}>
+                {Math.round(confidence * 100)}%
               </Text>
             </View>
-          )}
-
-          {/* Extracted Data - Editable Fields */}
-          <View style={styles.section}>
-            <Text
-              style={[
-                styles.sectionTitle,
-                { color: isDark ? "#FFFFFF" : "#1D1D1F" },
-              ]}
-            >
-              Medicine Information
-            </Text>
-
-            {/* Name */}
-            <View style={styles.fieldContainer}>
-              <Text
-                style={[
-                  styles.fieldLabel,
-                  { color: isDark ? "#8E8E93" : "#636366" },
-                ]}
-              >
-                Medicine Name *
-              </Text>
-              <View
-                style={[
-                  styles.inputWrapper,
-                  { backgroundColor: isDark ? "#2C2C2E" : "#F2F2F7" },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.inputText,
-                    { color: isDark ? "#FFFFFF" : "#1D1D1F" },
-                  ]}
-                >
-                  {formData.name || "Not detected"}
-                </Text>
-                <TouchableOpacity
-                  onPress={() => {
-                    Alert.prompt(
-                      "Medicine Name",
-                      "Enter medicine name",
-                      (text) => updateField("name", text),
-                      "plain-text",
-                      formData.name
-                    );
-                  }}
-                >
-                  <Ionicons
-                    name="create-outline"
-                    size={20}
-                    color={isDark ? "#0A84FF" : "#007AFF"}
-                  />
-                </TouchableOpacity>
-              </View>
+            <View style={styles.progressBar}>
+              <View style={[styles.progressFill, { width: `${confidence * 100}%`, backgroundColor: confidenceColor }]} />
             </View>
-
-            {/* Strength */}
-            <View style={styles.fieldContainer}>
-              <Text
-                style={[
-                  styles.fieldLabel,
-                  { color: isDark ? "#8E8E93" : "#636366" },
-                ]}
-              >
-                Strength
-              </Text>
-              <View
-                style={[
-                  styles.inputWrapper,
-                  { backgroundColor: isDark ? "#2C2C2E" : "#F2F2F7" },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.inputText,
-                    { color: isDark ? "#FFFFFF" : "#1D1D1F" },
-                  ]}
-                >
-                  {formData.strength || "Not detected"}
-                </Text>
-                <TouchableOpacity
-                  onPress={() => {
-                    Alert.prompt(
-                      "Strength",
-                      "Enter strength (e.g., 500mg)",
-                      (text) => updateField("strength", text),
-                      "plain-text",
-                      formData.strength
-                    );
-                  }}
-                >
-                  <Ionicons
-                    name="create-outline"
-                    size={20}
-                    color={isDark ? "#0A84FF" : "#007AFF"}
-                  />
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {/* Expiry Date */}
-            <View style={styles.fieldContainer}>
-              <Text
-                style={[
-                  styles.fieldLabel,
-                  { color: isDark ? "#8E8E93" : "#636366" },
-                ]}
-              >
-                Expiry Date
-              </Text>
-              <View
-                style={[
-                  styles.inputWrapper,
-                  { backgroundColor: isDark ? "#2C2C2E" : "#F2F2F7" },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.inputText,
-                    { color: isDark ? "#FFFFFF" : "#1D1D1F" },
-                  ]}
-                >
-                  {formData.expiry_date
-                    ? new Date(formData.expiry_date).toLocaleDateString()
-                    : "Not detected"}
-                </Text>
-                <TouchableOpacity
-                  onPress={() => {
-                    Alert.prompt(
-                      "Expiry Date",
-                      "Enter date (YYYY-MM-DD)",
-                      (text) => updateField("expiry_date", text),
-                      "plain-text",
-                      formData.expiry_date
-                    );
-                  }}
-                >
-                  <Ionicons
-                    name="create-outline"
-                    size={20}
-                    color={isDark ? "#0A84FF" : "#007AFF"}
-                  />
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {/* Batch Number */}
-            {formData.batch_number && (
-              <View style={styles.fieldContainer}>
-                <Text
-                  style={[
-                    styles.fieldLabel,
-                    { color: isDark ? "#8E8E93" : "#636366" },
-                  ]}
-                >
-                  Batch Number
-                </Text>
-                <View
-                  style={[
-                    styles.inputWrapper,
-                    { backgroundColor: isDark ? "#2C2C2E" : "#F2F2F7" },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.inputText,
-                      { color: isDark ? "#FFFFFF" : "#1D1D1F" },
-                    ]}
-                  >
-                    {formData.batch_number}
-                  </Text>
-                </View>
-              </View>
-            )}
-
-            {/* Manufacturer */}
-            {formData.manufacturer && (
-              <View style={styles.fieldContainer}>
-                <Text
-                  style={[
-                    styles.fieldLabel,
-                    { color: isDark ? "#8E8E93" : "#636366" },
-                  ]}
-                >
-                  Manufacturer
-                </Text>
-                <View
-                  style={[
-                    styles.inputWrapper,
-                    { backgroundColor: isDark ? "#2C2C2E" : "#F2F2F7" },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.inputText,
-                      { color: isDark ? "#FFFFFF" : "#1D1D1F" },
-                    ]}
-                  >
-                    {formData.manufacturer}
-                  </Text>
-                </View>
-              </View>
-            )}
+            <Text style={styles.confSub}>Please verify the information below is correct.</Text>
           </View>
 
-          {/* Raw OCR Text (collapsible) */}
-          {scan.raw_ocr_text && (
-            <View style={styles.section}>
-              <TouchableOpacity
-                style={styles.rawTextHeader}
-                onPress={() => Alert.alert("Raw OCR Text", scan.raw_ocr_text)}
-              >
-                <Text
-                  style={[
-                    styles.sectionTitle,
-                    { color: isDark ? "#FFFFFF" : "#1D1D1F" },
-                  ]}
-                >
-                  Raw Extracted Text
-                </Text>
-                <Ionicons
-                  name="chevron-forward"
-                  size={20}
-                  color={isDark ? "#0A84FF" : "#007AFF"}
-                />
-              </TouchableOpacity>
-            </View>
-          )}
+          <Text style={styles.sectionTitle}>Main Details</Text>
+          <View style={styles.card}>
+            <EditableField label="Medicine Name" value={formData.name} onChange={(t: string) => updateField("name", t)} isDark={isDark} required />
+            <EditableField label="Generic Name" value={formData.generic_name} onChange={(t: string) => updateField("generic_name", t)} isDark={isDark} />
+            <EditableField label="Strength" value={formData.strength} placeholder="e.g. 500mg" onChange={(t: string) => updateField("strength", t)} isDark={isDark} />
+          </View>
 
-          {/* Action Buttons */}
-          <View style={styles.actionButtons}>
-            <TouchableOpacity
-              style={[
-                styles.editButton,
-                { backgroundColor: isDark ? "#1C1C1E" : "#FFFFFF" },
-              ]}
-              onPress={() =>
-                router.push(`/scan/manual-entry?scanId=${scanId}` as any)
-              }
-            >
-              <Ionicons
-                name="create-outline"
-                size={20}
-                color={isDark ? "#0A84FF" : "#007AFF"}
-              />
-              <Text
-                style={[
-                  styles.editButtonText,
-                  { color: isDark ? "#0A84FF" : "#007AFF" },
-                ]}
-              >
-                Edit All Details
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                styles.saveButtonLarge,
-                { backgroundColor: isDark ? "#0A84FF" : "#007AFF" },
-              ]}
-              onPress={handleSave}
-              disabled={saving}
-            >
-              {saving ? (
-                <ActivityIndicator color="#FFFFFF" />
-              ) : (
-                <>
-                  <Ionicons name="checkmark-circle" size={20} color="#FFFFFF" />
-                  <Text style={styles.saveButtonLargeText}>Save Medicine</Text>
-                </>
-              )}
-            </TouchableOpacity>
+          <Text style={styles.sectionTitle}>Inventory & Dates</Text>
+          <View style={styles.card}>
+            <EditableField label="Expiry Date" value={formData.expiry_date} placeholder="YYYY-MM-DD" onChange={(t: string) => updateField("expiry_date", t)} isDark={isDark} icon="calendar-outline" />
+            <EditableField label="Quantity" value={formData.current_quantity.toString()} keyboardType="numeric" onChange={(t: string) => updateField("current_quantity", parseInt(t) || 0)} isDark={isDark} icon="layers-outline" />
+            <EditableField label="Manufacturer" value={formData.manufacturer} onChange={(t: string) => updateField("manufacturer", t)} isDark={isDark} icon="business-outline" />
           </View>
         </ScrollView>
+        
+        <View style={styles.footerAction}>
+          <TouchableOpacity style={styles.primaryBtn} onPress={handleSave} disabled={saving}>
+            <Text style={styles.primaryBtnText}>{saving ? "Securing..." : "Add to Inventory"}</Text>
+          </TouchableOpacity>
+        </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 40,
-  },
-  loadingText: {
-    fontSize: 16,
-    marginTop: 16,
-  },
-  errorText: {
-    fontSize: 18,
-    fontWeight: "600",
-    marginTop: 16,
-  },
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    shadowColor: "#000000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 3,
-  },
-  backButton: {
-    padding: 8,
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: "600",
-  },
-  saveButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-  },
-  saveText: {
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  content: {
-    flex: 1,
-  },
-  confidenceCard: {
-    margin: 20,
-    padding: 20,
-    borderRadius: 12,
-    shadowColor: "#000000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  confidenceHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 12,
-    gap: 8,
-  },
-  confidenceTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  confidenceBar: {
-    height: 8,
-    backgroundColor: "rgba(142, 142, 147, 0.2)",
-    borderRadius: 4,
-    overflow: "hidden",
-    marginBottom: 8,
-  },
-  confidenceBarFill: {
-    height: "100%",
-    borderRadius: 4,
-  },
-  confidenceText: {
-    fontSize: 14,
-  },
-  section: {
-    padding: 20,
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: "600",
-    marginBottom: 16,
-  },
-  fieldContainer: {
-    marginBottom: 16,
-  },
-  fieldLabel: {
-    fontSize: 14,
-    fontWeight: "500",
-    marginBottom: 8,
-  },
-  inputWrapper: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    padding: 16,
-    borderRadius: 12,
-  },
-  inputText: {
-    fontSize: 16,
-    flex: 1,
-  },
-  rawTextHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  actionButtons: {
-    padding: 20,
-    gap: 12,
-  },
-  editButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 16,
-    borderRadius: 12,
-    gap: 8,
-    shadowColor: "#000000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  editButtonText: {
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  saveButtonLarge: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 16,
-    borderRadius: 12,
-    gap: 8,
-    shadowColor: "#000000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  saveButtonLargeText: {
-    color: "#FFFFFF",
-    fontSize: 18,
-    fontWeight: "600",
-  },
-});
+const createStyles = (isDark: boolean) =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: isDark ? "#0A0A0C" : "#F8FBFF",
+    },
+    center: {
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    loadingText: {
+      marginTop: 16,
+      fontFamily: "PoppinsRegular",
+      color: "#8E8E93",
+    },
+    header: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+    },
+    headerTitle: {
+      fontSize: 17,
+      fontFamily: "PoppinsRegular",
+      fontWeight: "bold",
+      color: isDark ? "#FFFFFF" : "#1A1A1E",
+    },
+    backBtn: {
+      width: 40,
+      height: 40,
+      justifyContent: "center",
+    },
+    saveText: {
+      color: color.PRIMARY,
+      fontSize: 16,
+      fontFamily: "PoppinsRegular",
+      fontWeight: 'bold',
+    },
+    content: {
+      flex: 1,
+      paddingHorizontal: 20,
+    },
+    confidenceCard: {
+      padding: 20,
+      borderRadius: 24,
+      marginTop: 10,
+      marginBottom: 24,
+      borderWidth: 1,
+      borderColor: isDark ? "#2C2C2E" : "#ECEEF2",
+    },
+    confHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      marginBottom: 12,
+      gap: 8,
+    },
+    confLabel: {
+      flex: 1,
+      fontSize: 14,
+      fontFamily: "PoppinsRegular",
+      fontWeight: "600",
+    },
+    confPercent: {
+      fontSize: 16,
+      fontFamily: "PoppinsRegular",
+      fontWeight: "bold",
+    },
+    progressBar: {
+      height: 6,
+      backgroundColor: isDark ? "#2C2C2E" : "#F2F4F7",
+      borderRadius: 3,
+      overflow: "hidden",
+      marginBottom: 10,
+    },
+    progressFill: {
+      height: "100%",
+      borderRadius: 3,
+    },
+    confSub: {
+      fontSize: 12,
+      fontFamily: "PoppinsRegular",
+      color: "#8E8E93",
+    },
+    sectionTitle: {
+      fontSize: 15,
+      fontFamily: "PoppinsRegular",
+      fontWeight: "bold",
+      color: isDark ? "#FFFFFF" : "#1A1A1E",
+      marginBottom: 16,
+      textTransform: 'uppercase',
+      letterSpacing: 1,
+    },
+    card: {
+      backgroundColor: isDark ? "#1C1C1E" : "#FFFFFF",
+      borderRadius: 24,
+      padding: 20,
+      marginBottom: 24,
+      borderWidth: 1,
+      borderColor: isDark ? "#2C2C2E" : "#ECEEF2",
+    },
+    fieldWrapper: {
+      marginBottom: 16,
+    },
+    labelRow: {
+      flexDirection: "row",
+      marginBottom: 8,
+    },
+    fieldLabel: {
+      fontSize: 13,
+      fontFamily: "PoppinsRegular",
+      fontWeight: "600",
+      color: "#8E8E93",
+    },
+    inputBox: {
+      flexDirection: "row",
+      alignItems: "center",
+      paddingHorizontal: 16,
+      height: 50,
+      borderRadius: 14,
+    },
+    input: {
+      flex: 1,
+      fontSize: 15,
+      fontFamily: "PoppinsRegular",
+    },
+    footerAction: {
+      padding: 20,
+      backgroundColor: isDark ? "#0A0A0C" : "#F8FBFF",
+    },
+    primaryBtn: {
+      backgroundColor: color.PRIMARY,
+      height: 56,
+      borderRadius: 16,
+      justifyContent: "center",
+      alignItems: "center",
+      shadowColor: color.PRIMARY,
+      shadowOffset: { width: 0, height: 8 },
+      shadowOpacity: 0.2,
+      shadowRadius: 15,
+      elevation: 5,
+    },
+    primaryBtnText: {
+      color: "white",
+      fontSize: 17,
+      fontFamily: "PoppinsRegular",
+      fontWeight: "bold",
+    },
+  });

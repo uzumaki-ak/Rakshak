@@ -2,7 +2,7 @@ import { supabase } from "@/config/SupabaseConfig";
 import { useUser } from "@clerk/clerk-expo";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -13,6 +13,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import color from "@/shared/color";
 
 const PREDEFINED_AGENT_CONFIGS = {
   "medicine-teller": {
@@ -43,22 +44,13 @@ const PREDEFINED_AGENT_CONFIGS = {
     inputType: "file" as const,
     sessionType: "report-analyzer",
   },
-  "drug-interaction": {
-    name: "Drug Interaction Checker",
-    description: "Check interactions between multiple medicines",
-    icon: "warning",
-    inputType: "text" as const,
-    sessionType: "general",
-  },
-  "prescription-helper": {
-    name: "Prescription Helper",
-    description: "Get help with prescription information",
-    icon: "medkit",
-    inputType: "text" as const,
-    sessionType: "general",
-  },
 };
 
+/**
+ * NewChatScreen
+ * Refactored to initiate premium AI chat sessions.
+ * Standardized with Poppins fonts and primary styling.
+ */
 export default function NewChatScreen() {
   const { user } = useUser();
   const router = useRouter();
@@ -72,469 +64,255 @@ export default function NewChatScreen() {
   const [fetchingAgent, setFetchingAgent] = useState(true);
   const [agentConfig, setAgentConfig] = useState<any>(null);
 
+  const loadAgentConfig = useCallback(() => {
+    if (!agentType) {
+      router.back();
+      return;
+    }
+
+    const config = PREDEFINED_AGENT_CONFIGS[agentType as keyof typeof PREDEFINED_AGENT_CONFIGS];
+    if (config) {
+      setAgentConfig(config);
+    } else {
+      router.back();
+    }
+    setFetchingAgent(false);
+  }, [agentType, router]);
+
   useEffect(() => {
     loadAgentConfig();
-  }, [agentType]);
+  }, [loadAgentConfig]);
 
-  const loadAgentConfig = async () => {
-    if (!agentType) {
-      Alert.alert("Error", "Agent type not specified");
-      router.back();
-      return;
-    }
-
-    // Check if it's a predefined agent
-    if (
-      PREDEFINED_AGENT_CONFIGS[
-        agentType as keyof typeof PREDEFINED_AGENT_CONFIGS
-      ]
-    ) {
-      setAgentConfig(
-        PREDEFINED_AGENT_CONFIGS[
-          agentType as keyof typeof PREDEFINED_AGENT_CONFIGS
-        ]
-      );
-      setFetchingAgent(false);
-      return;
-    }
-
-    // Otherwise, fetch custom agent from database
-    try {
-      if (!user) {
-        Alert.alert("Error", "User not found");
-        router.back();
-        return;
-      }
-
-      const { data: userData } = await supabase
-        .from("users")
-        .select("id")
-        .eq("clerk_user_id", user.id)
-        .single();
-
-      if (!userData) {
-        Alert.alert("Error", "User not found");
-        router.back();
-        return;
-      }
-
-      const { data: customAgent, error } = await supabase
-        .from("user_agents")
-        .select("*")
-        .eq("id", agentType)
-        .eq("user_id", userData.id)
-        .single();
-
-      if (error || !customAgent) {
-        console.error("Custom agent not found:", error);
-        Alert.alert("Error", "Agent not found");
-        router.back();
-        return;
-      }
-
-      // Transform custom agent to config format
-      setAgentConfig({
-        name: customAgent.name,
-        description: customAgent.description || "",
-        icon: customAgent.icon || "build",
-        inputType: customAgent.input_type || "text",
-        sessionType: "custom",
-        systemPrompt: customAgent.system_prompt,
-        agentId: customAgent.id,
-      });
-      setFetchingAgent(false);
-    } catch (error) {
-      console.error("Error loading custom agent:", error);
-      Alert.alert("Error", "Failed to load agent");
-      router.back();
-    }
-  };
-
-  const createChatSession = async (
-    initialMessage?: string,
-    attachments?: string[]
-  ) => {
+  const createChatSession = async () => {
     if (!user || !agentConfig) return;
 
     setLoading(true);
-
     try {
-      const { data: userData, error: userError } = await supabase
+      const { data: dbUser } = await supabase
         .from("users")
         .select("id")
         .eq("clerk_user_id", user.id)
         .single();
 
-      if (userError || !userData) {
-        console.error("User not found:", userError);
-        return;
-      }
+      if (!dbUser) throw new Error("User disconnected.");
 
-      // Use sessionType for the session type field
-      const sessionType = agentConfig.sessionType || agentType;
-
-      const { data: session, error: sessionError } = await supabase
+      const { data: session, error: sessErr } = await supabase
         .from("ai_chat_sessions")
-        .insert([
-          {
-            user_id: userData.id,
-            title: agentConfig.name,
-            session_type: sessionType,
-            context_data: {
-              agent_type: agentType,
-              agent_id: agentConfig.agentId,
-              system_prompt: agentConfig.systemPrompt,
-            },
-            is_active: true,
-            last_message_at: new Date().toISOString(),
-          },
-        ])
+        .insert([{
+          user_id: dbUser.id,
+          title: agentConfig.name,
+          session_type: agentConfig.sessionType,
+          is_active: true,
+          last_message_at: new Date().toISOString(),
+        }])
         .select()
         .single();
 
-      if (sessionError) throw sessionError;
-
-      if (initialMessage) {
-        const { error: messageError } = await supabase
-          .from("chat_messages")
-          .insert([
-            {
-              session_id: session.id,
-              sender: "user",
-              content: initialMessage,
-              message_type: "text",
-              attachments: attachments,
-              created_at: new Date().toISOString(),
-            },
-          ]);
-
-        if (messageError) throw messageError;
-      }
+      if (sessErr) throw sessErr;
 
       router.replace(`/assistant/chat/${session.id}` as any);
     } catch (error) {
-      console.error("Error creating chat session:", error);
-      Alert.alert("Error", "Failed to create chat session");
+      console.error("Session creation error:", error);
+      Alert.alert("Error", "We couldn't start a new session. Please try again.");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleInputType = (inputType: string) => {
-    createChatSession();
-  };
-
   if (fetchingAgent) {
     return (
-      <SafeAreaView style={styles.safeArea}>
-        <View style={styles.center}>
-          <ActivityIndicator
-            size="large"
-            color={isDark ? "#5FD0D8" : "#007AFF"}
-          />
-          <Text
-            style={[styles.loadingText, { color: isDark ? "#ccc" : "#666" }]}
-          >
-            Loading agent...
-          </Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  if (!agentConfig) {
-    return (
-      <SafeAreaView style={styles.safeArea}>
-        <View style={styles.center}>
-          <Ionicons
-            name="alert-circle"
-            size={64}
-            color={isDark ? "#FF6B6B" : "#FF3B30"}
-          />
-          <Text style={styles.errorText}>Agent not found</Text>
-          <TouchableOpacity
-            style={[
-              styles.backButton,
-              { backgroundColor: isDark ? "#2D89FF" : "#007AFF" },
-            ]}
-            onPress={() => router.back()}
-          >
-            <Text style={styles.backButtonText}>Go Back</Text>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
+      <View style={[styles.container, styles.center]}>
+        <ActivityIndicator size="large" color={color.PRIMARY} />
+      </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <Ionicons name="arrow-back" size={24} color={styles.primary.color} />
+          <Ionicons name="chevron-back" size={24} color={isDark ? "white" : "black"} />
         </TouchableOpacity>
-        <Text style={styles.title}>New Chat</Text>
-        <View style={{ width: 24 }} />
+        <Text style={styles.headerTitle}>Assistant Config</Text>
+        <View style={{ width: 44 }} />
       </View>
 
-      <View style={styles.agentInfo}>
-        <View
-          style={[
-            styles.agentIcon,
-            { backgroundColor: isDark ? "#2D89FF" : "#007AFF" },
-          ]}
-        >
-          <Ionicons name={agentConfig.icon as any} size={32} color="white" />
-        </View>
-        <Text style={styles.agentName}>{agentConfig.name}</Text>
-        <Text style={styles.agentDescription}>{agentConfig.description}</Text>
-      </View>
-
-      <View style={styles.inputOptions}>
-        <Text style={styles.optionsTitle}>How would you like to start?</Text>
-
-        <TouchableOpacity
-          style={[
-            styles.optionCard,
-            { backgroundColor: isDark ? "#1C1C1E" : "white" },
-          ]}
-          onPress={() => handleInputType(agentConfig.inputType)}
-          disabled={loading}
-        >
-          <View style={styles.optionContent}>
-            <View
-              style={[
-                styles.optionIcon,
-                { backgroundColor: isDark ? "#2D89FF" : "#007AFF" },
-              ]}
-            >
-              <Ionicons
-                name={getInputTypeIcon(agentConfig.inputType)}
-                size={24}
-                color="white"
-              />
-            </View>
-            <View style={styles.optionText}>
-              <Text style={styles.optionTitle}>
-                {getInputTypeLabel(agentConfig.inputType)}
-              </Text>
-              <Text style={styles.optionSubtitle}>
-                {getInputTypeDescription(agentConfig.inputType)}
-              </Text>
-            </View>
+      <View style={styles.content}>
+        <View style={styles.agentOverview}>
+          <View style={styles.agentIconWrap}>
+            <Ionicons name={agentConfig.icon} size={36} color="white" />
           </View>
-          {loading ? (
-            <ActivityIndicator
-              size="small"
-              color={isDark ? "#5FD0D8" : "#007AFF"}
-            />
-          ) : (
-            <Ionicons
-              name="chevron-forward"
-              size={20}
-              color={isDark ? "#8E8E93" : "#666"}
-            />
-          )}
-        </TouchableOpacity>
-      </View>
+          <Text style={styles.agentName}>{agentConfig.name}</Text>
+          <Text style={styles.agentDesc}>{agentConfig.description}</Text>
+        </View>
 
-      <View style={styles.disclaimer}>
-        <Ionicons name="warning" size={16} color="#FF9500" />
-        <Text style={styles.disclaimerText}>
-          AI assistants provide informational support only. Always consult
-          healthcare professionals for medical advice.
-        </Text>
+        <View style={styles.optionsWrap}>
+          <Text style={styles.optionsTitle}>Preferred Input Method</Text>
+          <TouchableOpacity style={[styles.optionItem, { backgroundColor: isDark ? "#1C1C1E" : "white" }]} onPress={createChatSession} disabled={loading}>
+            <View style={styles.itemIconWrap}>
+              <Ionicons name="chatbubbles-outline" size={20} color={color.PRIMARY} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.itemTitle}>Multi-turn Conversation</Text>
+              <Text style={styles.itemSub}>Direct text dialogue with context-aware AI.</Text>
+            </View>
+            {loading ? <ActivityIndicator size="small" color={color.PRIMARY} /> : <Ionicons name="chevron-forward" size={18} color="#8E8E93" />}
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.disclaimer}>
+          <Ionicons name="shield-checkmark" size={16} color="#FF9500" />
+          <Text style={styles.disclaimerText}>
+            Medical Intelligence is for informational use only. Consult a doctor for any specific health concerns.
+          </Text>
+        </View>
+
+        <TouchableOpacity style={styles.startBtn} onPress={createChatSession} disabled={loading}>
+          <Text style={styles.startBtnText}>{loading ? "Initializing..." : "Proceed to Assistant"}</Text>
+        </TouchableOpacity>
       </View>
     </SafeAreaView>
   );
 }
 
-const getInputTypeIcon = (inputType: string) => {
-  switch (inputType) {
-    case "text":
-      return "chatbubble";
-    case "image":
-      return "image";
-    case "barcode":
-      return "barcode";
-    case "file":
-      return "document";
-    default:
-      return "chatbubble";
-  }
-};
-
-const getInputTypeLabel = (inputType: string) => {
-  switch (inputType) {
-    case "text":
-      return "Start Chat";
-    case "image":
-      return "Upload Image";
-    case "barcode":
-      return "Scan Barcode";
-    case "file":
-      return "Upload File";
-    default:
-      return "Start Chat";
-  }
-};
-
-const getInputTypeDescription = (inputType: string) => {
-  switch (inputType) {
-    case "text":
-      return "Begin conversation with text input";
-    case "image":
-      return "Upload medicine image for identification";
-    case "barcode":
-      return "Scan barcode or upload barcode image";
-    case "file":
-      return "Upload documents for analysis";
-    default:
-      return "Begin conversation";
-  }
-};
-
-const createStyles = (isDark: boolean) =>
-  StyleSheet.create({
-    safeArea: {
-      flex: 1,
-      backgroundColor: isDark ? "#050507" : "#fbfbfc",
-    },
-    center: {
-      flex: 1,
-      justifyContent: "center",
-      alignItems: "center",
-      padding: 20,
-    },
-    loadingText: {
-      marginTop: 16,
-      fontSize: 16,
-    },
-    errorText: {
-      fontSize: 18,
-      fontWeight: "600",
-      color: isDark ? "#FFFFFF" : "#1a1a1a",
-      marginTop: 16,
-      marginBottom: 20,
-      textAlign: "center",
-    },
-    backButton: {
-      paddingHorizontal: 24,
-      paddingVertical: 12,
-      borderRadius: 25,
-    },
-    backButtonText: {
-      color: "white",
-      fontSize: 16,
-      fontWeight: "600",
-    },
-    header: {
-      flexDirection: "row",
-      justifyContent: "space-between",
-      alignItems: "center",
-      paddingHorizontal: 20,
-      paddingTop: 16,
-      paddingBottom: 8,
-    },
-    backBtn: {
-      padding: 4,
-    },
-    title: {
-      fontSize: 18,
-      fontWeight: "600",
-      color: isDark ? "#FFFFFF" : "#1a1a1a",
-    },
-    primary: {
-      color: isDark ? "#0A84FF" : "#007AFF",
-    },
-    agentInfo: {
-      alignItems: "center",
-      padding: 32,
-      paddingTop: 16,
-    },
-    agentIcon: {
-      width: 64,
-      height: 64,
-      borderRadius: 32,
-      justifyContent: "center",
-      alignItems: "center",
-      marginBottom: 16,
-    },
-    agentName: {
-      fontSize: 24,
-      fontWeight: "bold",
-      color: isDark ? "#FFFFFF" : "#1a1a1a",
-      marginBottom: 8,
-      textAlign: "center",
-    },
-    agentDescription: {
-      fontSize: 16,
-      color: isDark ? "#8E8E93" : "#666",
-      textAlign: "center",
-      lineHeight: 22,
-    },
-    inputOptions: {
-      padding: 20,
-    },
-    optionsTitle: {
-      fontSize: 18,
-      fontWeight: "600",
-      color: isDark ? "#FFFFFF" : "#1a1a1a",
-      marginBottom: 16,
-    },
-    optionCard: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-      padding: 16,
-      borderRadius: 12,
-      shadowColor: "#000",
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: isDark ? 0.3 : 0.1,
-      shadowRadius: 4,
-      elevation: 3,
-    },
-    optionContent: {
-      flexDirection: "row",
-      alignItems: "center",
-      flex: 1,
-    },
-    optionIcon: {
-      width: 48,
-      height: 48,
-      borderRadius: 24,
-      justifyContent: "center",
-      alignItems: "center",
-      marginRight: 12,
-    },
-    optionText: {
-      flex: 1,
-    },
-    optionTitle: {
-      fontSize: 16,
-      fontWeight: "600",
-      color: isDark ? "#FFFFFF" : "#1a1a1a",
-      marginBottom: 2,
-    },
-    optionSubtitle: {
-      fontSize: 14,
-      color: isDark ? "#8E8E93" : "#666",
-    },
-    disclaimer: {
-      flexDirection: "row",
-      alignItems: "flex-start",
-      padding: 20,
-      margin: 20,
-      marginTop: "auto",
-      backgroundColor: isDark
-        ? "rgba(255, 149, 0, 0.1)"
-        : "rgba(255, 149, 0, 0.1)",
-      borderRadius: 8,
-      gap: 8,
-    },
-    disclaimerText: {
-      flex: 1,
-      fontSize: 12,
-      color: isDark ? "#FFB86B" : "#FF9500",
-      lineHeight: 16,
-    },
-  });
+const createStyles = (isDark: boolean) => StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: isDark ? "#0A0A0C" : "#F8FBFF",
+  },
+  center: {
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  backBtn: {
+    width: 44,
+    height: 44,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  headerTitle: {
+    fontSize: 17,
+    fontFamily: "PoppinsRegular",
+    fontWeight: "bold",
+    color: isDark ? "white" : "#1A1A1E",
+  },
+  content: {
+    flex: 1,
+    padding: 24,
+  },
+  agentOverview: {
+    alignItems: "center",
+    marginTop: 20,
+    marginBottom: 40,
+  },
+  agentIconWrap: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: color.PRIMARY,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 20,
+    shadowColor: color.PRIMARY,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 15,
+    elevation: 10,
+  },
+  agentName: {
+    fontSize: 24,
+    fontFamily: "PoppinsRegular",
+    fontWeight: "bold",
+    color: isDark ? "white" : "#1A1A1E",
+    marginBottom: 8,
+  },
+  agentDesc: {
+    fontSize: 15,
+    fontFamily: "PoppinsRegular",
+    color: "#8E8E93",
+    textAlign: "center",
+    lineHeight: 22,
+    paddingHorizontal: 20,
+  },
+  optionsWrap: {
+    gap: 16,
+  },
+  optionsTitle: {
+    fontSize: 15,
+    fontFamily: "PoppinsRegular",
+    fontWeight: "bold",
+    color: isDark ? "white" : "#1A1A1E",
+    textTransform: "uppercase",
+    letterSpacing: 1,
+    marginBottom: 8,
+  },
+  optionItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 16,
+    borderRadius: 20,
+    gap: 16,
+    borderWidth: 1,
+    borderColor: isDark ? "#2C2C2E" : "#ECEEF2",
+  },
+  itemIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: color.PRIMARY + "10",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  itemTitle: {
+    fontSize: 16,
+    fontFamily: "PoppinsRegular",
+    fontWeight: "600",
+    color: isDark ? "white" : "#1A1A1E",
+  },
+  itemSub: {
+    fontSize: 12,
+    fontFamily: "PoppinsRegular",
+    color: "#8E8E93",
+  },
+  disclaimer: {
+    flexDirection: "row",
+    backgroundColor: "#FF9500" + "10",
+    padding: 16,
+    borderRadius: 16,
+    gap: 12,
+    marginTop: "auto",
+    marginBottom: 40,
+  },
+  disclaimerText: {
+    flex: 1,
+    fontSize: 12,
+    fontFamily: "PoppinsRegular",
+    color: "#FF9500",
+    lineHeight: 18,
+  },
+  startBtn: {
+    backgroundColor: color.PRIMARY,
+    height: 56,
+    borderRadius: 16,
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: color.PRIMARY,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  startBtnText: {
+    color: "white",
+    fontSize: 18,
+    fontFamily: "PoppinsRegular",
+    fontWeight: "bold",
+  },
+});
