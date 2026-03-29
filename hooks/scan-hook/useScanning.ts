@@ -1,5 +1,6 @@
 import { OCRService } from '@/services/ocr/ocrService';
 import { SupabaseScanService } from '@/services/supabase/scans';
+import { BarcodeLookupService } from '@/services/barcode/barcodeLookupService';
 import { OCRProcessingResult, ParsedMedicineData, ScanResult } from '@/types/scan';
 import { useCallback, useState } from 'react';
 import { Alert } from 'react-native';
@@ -155,13 +156,27 @@ export const useScanning = (clerkUserId: string | undefined) => {
 
       console.log('Processing barcode:', barcodeData);
 
-      // Create scan record for barcode
+      // Hook into the Barcode Lookup Service to run FDA/OpenFoodFacts/AI fallback
+      const lookupService = BarcodeLookupService.getInstance();
+      const lookupResult = await lookupService.lookupBarcode(barcodeData, 'auto');
+      
+      let parsedData: Partial<ParsedMedicineData> = { barcode: barcodeData };
+      if (lookupResult.source && lookupResult.product) {
+        parsedData = {
+          ...parsedData,
+          name: lookupResult.product.name || undefined,
+          manufacturer: lookupResult.product.manufacturer || undefined,
+          generic_name: lookupResult.product.ingredients ? lookupResult.product.ingredients.join(', ') : undefined
+        };
+      }
+
+      // Create scan record for barcode with the retrieved augmented data
       const scanRecord = await scanService.createScan(clerkUserId, {
         scan_type: 'barcode',
-        raw_ocr_text: barcodeData,
-        parsed_data: { barcode: barcodeData },
+        raw_ocr_text: lookupResult.rawResponse ? JSON.stringify(lookupResult.rawResponse) : barcodeData,
+        parsed_data: parsedData as ParsedMedicineData,
         processing_status: 'completed',
-        confidence_score: 1.0
+        confidence_score: lookupResult.source ? 0.9 : 0.5
       });
 
       setCurrentScan(scanRecord);

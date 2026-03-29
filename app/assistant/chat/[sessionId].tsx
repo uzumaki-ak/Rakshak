@@ -21,6 +21,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { MedicineChatService } from "@/services/ai/medicineChatService";
 import { UploadService } from "@/services/media/uploadService";
 import * as ImagePicker from "expo-image-picker";
+import * as FileSystem from 'expo-file-system/legacy';
 import color from "@/shared/color";
 import { Image } from "react-native";
 
@@ -152,10 +153,29 @@ export default function ChatSessionScreen() {
       if (userMsgErr) throw userMsgErr;
 
       // 2. Prepare AI Context
-      const history = messages.slice(-10).map(m => ({
-        role: m.role === 'user' ? 'user' : 'model' as any,
-        parts: [{ text: m.content }]
+      // 2. Prepare AI Context (including previous images)
+      const history = await Promise.all(messages.slice(-10).map(async (m) => {
+        const parts: any[] = [{ text: m.content }];
+        if (m.metadata?.image_url) {
+          try {
+            // We use FileSystem legacy to download the public URL to a temp device cache,
+            // then encode it to Base64 to supply inline to Gemini's history context.
+            const localUri = FileSystem.cacheDirectory + `temp_${m.id}.jpg`;
+            const downloaded = await FileSystem.downloadAsync(m.metadata.image_url, localUri);
+            const base64 = await FileSystem.readAsStringAsync(downloaded.uri, { encoding: FileSystem.EncodingType.Base64 });
+            parts.push({
+              inlineData: { mimeType: "image/jpeg", data: base64 }
+            });
+          } catch (imgErr) {
+            console.warn("Failed to attach history image to AI context:", imgErr);
+          }
+        }
+        return {
+          role: m.role === 'user' ? 'user' : 'model' as any,
+          parts
+        };
       }));
+
 
       // 3. Call AI Service
       const medicineContext = session?.context_data?.medicine || null;
@@ -232,41 +252,45 @@ export default function ChatSessionScreen() {
         </TouchableOpacity>
       </View>
 
-      <FlatList
-        ref={flatListRef}
-        data={messages}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <View style={[styles.msgWrapper, item.role === "user" ? styles.msgRight : styles.msgLeft]}>
-            {item.role === "assistant" && (
-              <View style={styles.aiAvatar}>
-                <Ionicons name="sparkles" size={14} color="white" />
-              </View>
-            )}
-            <View style={[styles.bubble, item.role === "user" ? styles.bubbleUser : styles.bubbleAi]}>
-              {item.metadata?.image_url && (
-                <Image 
-                  source={{ uri: item.metadata.image_url }} 
-                  style={styles.messageImage} 
-                  resizeMode="cover"
-                />
-              )}
-              <Text style={[styles.msgText, item.role === "user" ? styles.msgTextUser : styles.msgTextAi]}>
-                {item.content}
-              </Text>
+      <KeyboardAvoidingView 
+        style={{ flex: 1 }} 
+        behavior={Platform.OS === "ios" ? "padding" : "height"} 
+        keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 25}
+      >
+        <FlatList
+          ref={flatListRef}
+          data={messages}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item }) => (
+            <View style={[styles.msgWrapper, item.role === "user" ? styles.msgRight : styles.msgLeft]}>
               {item.role === "assistant" && (
-                <TouchableOpacity onPress={() => handleSpeech(item.id, item.content)} style={styles.speakBtn}>
-                  <Ionicons name={speakingId === item.id ? "pause-circle" : "volume-medium-outline"} size={18} color="#8E8E93" />
-                </TouchableOpacity>
+                <View style={styles.aiAvatar}>
+                  <Ionicons name="sparkles" size={14} color="white" />
+                </View>
               )}
+              <View style={[styles.bubble, item.role === "user" ? styles.bubbleUser : styles.bubbleAi]}>
+                {item.metadata?.image_url && (
+                  <Image 
+                    source={{ uri: item.metadata.image_url }} 
+                    style={styles.messageImage} 
+                    resizeMode="cover"
+                  />
+                )}
+                <Text style={[styles.msgText, item.role === "user" ? styles.msgTextUser : styles.msgTextAi]}>
+                  {item.content}
+                </Text>
+                {item.role === "assistant" && (
+                  <TouchableOpacity onPress={() => handleSpeech(item.id, item.content)} style={styles.speakBtn}>
+                    <Ionicons name={speakingId === item.id ? "pause-circle" : "volume-medium-outline"} size={18} color="#8E8E93" />
+                  </TouchableOpacity>
+                )}
+              </View>
             </View>
-          </View>
-        )}
-        contentContainerStyle={styles.listContent}
-        showsVerticalScrollIndicator={false}
-      />
+          )}
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+        />
 
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} keyboardVerticalOffset={10}>
         {selectedImage && (
           <View style={styles.previewContainer}>
             <Image source={{ uri: selectedImage }} style={styles.previewImage} />

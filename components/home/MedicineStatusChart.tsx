@@ -1,5 +1,5 @@
 import { supabase } from "@/config/SupabaseConfig";
-import { useUser } from "@clerk/clerk-expo";
+import { useAuthContext } from "@/context/AuthContext";
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -20,7 +20,7 @@ interface MedicineStatusData {
 }
 
 export default function MedicineStatusChart() {
-  const { user } = useUser();
+  const { user } = useAuthContext();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
   const styles = createStyles(isDark);

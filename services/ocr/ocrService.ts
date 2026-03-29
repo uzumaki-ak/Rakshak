@@ -1,5 +1,5 @@
 import { ParsedMedicineData, OCRProcessingResult } from '@/types/scan';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 
 /**
  * OCR Service for processing medicine images.
@@ -29,18 +29,12 @@ export class OCRService {
 
   async processImage(imageUri: string): Promise<OCRProcessingResult> {
     try {
-      const rawText = await this.extractTextFromImage(imageUri);
-      
-      if (!rawText || rawText.trim().length === 0) {
-        return { success: false, error: 'No readable text was detected.' };
-      }
-
-      const parsedData = await this.parseTextWithGemini(rawText);
+      const parsedData = await this.extractAndParseWithGemini(imageUri);
       
       return {
         success: true,
         parsed_data: parsedData,
-        raw_text: rawText,
+        raw_text: JSON.stringify(parsedData), // Combine into one
         confidence_score: this.calculateOverallConfidence(parsedData)
       };
     } catch (error) {
@@ -49,92 +43,63 @@ export class OCRService {
     }
   }
 
-  private async extractTextFromImage(imageUri: string): Promise<string> {
-    if (!this.visionApiKey) throw new Error('Vision API key missing.');
-
-    try {
-      const base64Image = await FileSystem.readAsStringAsync(imageUri, {
-        encoding: 'base64',
-      });
-
-      const response = await fetch(
-        `https://vision.googleapis.com/v1/images:annotate?key=${this.visionApiKey}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            requests: [{
-              image: { content: base64Image },
-              features: [{ type: 'TEXT_DETECTION' }]
-            }]
-          }),
-        }
-      );
-
-      const result = await response.json();
-      return result.responses?.[0]?.textAnnotations?.[0]?.description || '';
-    } catch (error) {
-      throw error;
+  private async extractAndParseWithGemini(imageUri: string): Promise<ParsedMedicineData> {
+    if (!this.geminiApiKey) {
+      throw new Error("Gemini API key is missing. Ensure EXPO_PUBLIC_GEMINI_API_KEY is set.");
     }
-  }
-
-  private async parseTextWithGemini(text: string): Promise<ParsedMedicineData> {
-    if (!this.geminiApiKey) return this.fallbackPatternParsing(text);
 
     try {
-      const prompt = `Extract medicine data: name, generic_name, strength, expiry_date (YYYY-MM-DD), batch_number, manufacturer from "${text}". Return pure JSON.`;
+      const base64Image = await FileSystem.readAsStringAsync(imageUri, { encoding: 'base64' });
       
+      const prompt = `Analyze this medicine strip, box, or packaging. Strictly extract the following data into pure JSON format:
+{
+  "name": "", // Wait, CRITICAL RULE: If the Marketing Brand Name is hidden (e.g. you're looking at the back of the box), logically INFER a descriptive name based on the active ingredients (e.g., "Paracetamol & Aceclofenac Tablets") so this field is NEVER empty string.
+  "generic_name": "", // Comma separated list of active ingredients
+  "strength": "", // Total strength of ingredients
+  "expiry_date": "YYYY-MM-DD",
+  "batch_number": "",
+  "manufacturer": "", // CRITICAL: Look very closely at the small text at the bottom for "Manufactured by", "Marketed by", or company logos.
+  "confidence_scores": {
+    "name": 0.9,
+    "expiry_date": 0.8,
+    "strength": 0.9
+  }
+}
+If a value truly cannot be found or inferred, use null. Return ONLY the raw JSON object. Never use markdown backticks.`;
+
       const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${this.geminiApiKey}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: { temperature: 0.1, response_mime_type: "application/json" }
+            contents: [{
+              parts: [
+                { text: prompt },
+                { inlineData: { mimeType: "image/jpeg", data: base64Image } }
+              ]
+            }],
+            generationConfig: { 
+              temperature: 0.1, 
+              response_mime_type: "application/json" 
+            }
           }),
         }
       );
 
       const result = await response.json();
+      if (result.error) throw new Error(result.error.message);
+
       const generatedText = result.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!generatedText) throw new Error("Empty AI response");
+
       return JSON.parse(generatedText.trim());
     } catch (error) {
-      console.warn('Gemini OCR parsing failed, trying Eurian fallback...');
-      return this.parseTextWithEuri(text);
+      console.warn('Gemini OCR parsing failed, trying dummy fallback...', error);
+      return this.fallbackPatternParsing("Unknown Medicine\nNo readable data");
     }
   }
 
-  private async parseTextWithEuri(text: string): Promise<ParsedMedicineData> {
-    if (!this.euriApiKey) return this.fallbackPatternParsing(text);
-
-    try {
-      const prompt = `Extract medicine data: name, generic_name, strength, expiry_date (YYYY-MM-DD), batch_number, manufacturer from "${text}". Return pure JSON.`;
-      
-      const response = await fetch(this.euriUrl, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.euriApiKey}`
-        },
-        body: JSON.stringify({
-          messages: [{ role: 'user', content: prompt }],
-          model: 'gpt-4.1-nano',
-          temperature: 0.1,
-        }),
-      });
-
-      const result = await response.json();
-      const content = result.choices?.[0]?.message?.content;
-      if (!content) throw new Error('Euri empty response');
-      
-      const cleaned = content.replace(/```json\n?|```/g, '').trim();
-      return JSON.parse(cleaned);
-    } catch (error) {
-      console.error('Eurian fallback also failed:', error);
-      return this.fallbackPatternParsing(text);
-    }
-  }
 
   private fallbackPatternParsing(text: string): ParsedMedicineData {
     const strengthPattern = /(\d+\s*(?:mg|ml|mcg|g|iu))/i;

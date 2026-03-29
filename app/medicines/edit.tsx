@@ -135,15 +135,19 @@ export default function EditMedicineScreen() {
       // Reschedule all notifications
       await notificationService.cancelMedicineNotifications(id!);
       
-      if (formData.expiry_date) {
-        await notificationService.scheduleExpiryAlert(id!, formData.name, formData.expiry_date);
-      }
-      
-      if (formData.intake_times && formData.intake_times.length > 0) {
-        await notificationService.scheduleIntakeReminders(id!, formData.name, formData.intake_times);
+      try {
+        if (formData.expiry_date) {
+          await notificationService.scheduleExpiryAlert(id!, formData.name, formData.expiry_date);
+        }
+        
+        if (formData.intake_times && formData.intake_times.length > 0) {
+          await notificationService.scheduleIntakeReminders(id!, formData.name, formData.intake_times);
+        }
+      } catch (notifErr) {
+        console.warn("Notifications failed (likely Expo Go simulation limits) but save succeeded:", notifErr);
       }
 
-      Alert.alert("Success", "Information updated and reminders synced.", [
+      Alert.alert("Success", "Information updated.", [
         { text: "Done", onPress: () => router.back() }
       ]);
     } catch (error) {

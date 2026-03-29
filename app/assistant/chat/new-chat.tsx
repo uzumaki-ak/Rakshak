@@ -61,6 +61,8 @@ export default function NewChatScreen() {
   const isDark = colorScheme === "dark";
   const styles = createStyles(isDark);
  
+  const medicineId = params.medicineId as string;
+
   const [loading, setLoading] = useState(false);
   const [fetchingAgent, setFetchingAgent] = useState(true);
   const [agentConfig, setAgentConfig] = useState<any>(null);
@@ -111,24 +113,59 @@ export default function NewChatScreen() {
  
   const createChatSession = async () => {
     if (!user || !agentConfig) return;
- 
+
     setLoading(true);
     try {
+      // Guarantee users row exists (FK requirement for ai_chat_sessions)
+      const { data: existingUser } = await supabase
+        .from('users')
+        .select('id')
+        .eq('id', user.id)
+        .single();
+
+      if (!existingUser) {
+        await supabase.from('users').delete().eq('email', user.email ?? '');
+        await supabase.from('users').insert({
+          id: user.id,
+          clerk_user_id: user.id,
+          email: user.email ?? '',
+          full_name: user.user_metadata?.full_name ?? null,
+          is_active: true,
+        });
+      }
+
+      // Fetch medicine context if routed from a specific medicine detail page
+      let contextData = null;
+      let sessionTitle = agentConfig.name;
+
+      if (medicineId) {
+        const { data: medData } = await supabase
+          .from('medicines')
+          .select('*')
+          .eq('id', medicineId)
+          .single();
+
+        if (medData) {
+          contextData = { medicine: medData };
+          sessionTitle = `Ask about ${medData.name}`;
+        }
+      }
+
       const { data: session, error: sessErr } = await supabase
         .from("ai_chat_sessions")
         .insert([{
           user_id: user.id,
-          agent_id: agentConfig.isCustom ? agentConfig.id : null,
-          title: agentConfig.name,
+          title: sessionTitle,
           session_type: agentConfig.sessionType,
+          context_data: contextData,
           is_active: true,
           last_message_at: new Date().toISOString(),
         }])
         .select()
         .single();
- 
+
       if (sessErr) throw sessErr;
- 
+
       router.replace(`/assistant/chat/${session.id}` as any);
     } catch (error) {
       console.error("Session creation error:", error);
@@ -137,6 +174,7 @@ export default function NewChatScreen() {
       setLoading(false);
     }
   };
+
 
   if (fetchingAgent) {
     return (

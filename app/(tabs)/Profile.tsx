@@ -38,11 +38,36 @@ export default function ProfileScreen() {
   const fetchProfileData = useCallback(async () => {
     if (!user) return;
     try {
-      const { data: userData, error: userError } = await supabase.from("users").select("*").eq("id", user.id).single();
-      if (userError) throw userError;
-      setUserProfile(userData);
+      let { data: userData, error: userError } = await supabase
+        .from("users")
+        .select("*")
+        .eq("id", user.id)
+        .single();
 
-      const { data: healthData, error: healthError } = await supabase.from("user_health_profiles").select("*").eq("user_id", userData.id).single();
+      // If row doesn't exist yet, create it then use user_metadata as fallback
+      if (userError && userError.code === 'PGRST116') {
+        const { data: inserted } = await supabase.from('users').upsert({
+          id: user.id,
+          clerk_user_id: user.id,
+          email: user.email ?? '',
+          full_name: user.user_metadata?.full_name ?? null,
+          is_active: true,
+        }, { onConflict: 'id' }).select().single();
+        userData = inserted;
+      }
+
+      // Merge table data with auth metadata as fallback
+      setUserProfile({
+        ...userData,
+        full_name: userData?.full_name || user.user_metadata?.full_name || null,
+        email: userData?.email || user.email || '',
+      } as any);
+
+      const { data: healthData, error: healthError } = await supabase
+        .from("user_health_profiles")
+        .select("*")
+        .eq("user_id", user.id)
+        .single();
       if (healthError && healthError.code !== "PGRST116") throw healthError;
       setHealthProfile(healthData);
     } catch (error) {
@@ -51,6 +76,7 @@ export default function ProfileScreen() {
       setLoading(false);
     }
   }, [user]);
+
 
   useEffect(() => {
     fetchProfileData();

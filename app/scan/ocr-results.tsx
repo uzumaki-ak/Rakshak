@@ -157,24 +157,24 @@ export default function OCRResultsScreen() {
     }
   };
 
-  const EditableField = ({ label, value, onChange, placeholder, isDark: fieldIsDark, required, icon, ...props }: any) => (
-    <View style={styles.fieldWrapper}>
-      <View style={styles.labelRow}>
-        <Text style={styles.fieldLabel}>{label} {required && "*"}</Text>
-      </View>
-      <View style={[styles.inputBox, { backgroundColor: fieldIsDark ? "#2C2C2E" : "#F2F4F7" }]}>
-        {icon && <Ionicons name={icon} size={18} color="#8E8E93" style={{ marginRight: 10 }} />}
-        <TextInput
-          style={[styles.input, { color: fieldIsDark ? "#FFFFFF" : "#1A1A1E" }]}
-          value={value}
-          onChangeText={onChange}
-          placeholder={placeholder || `Enter ${label.toLowerCase()}`}
-          placeholderTextColor="#636366"
-          {...props}
-        />
-      </View>
+const EditableField = ({ label, value, onChange, placeholder, isDark: fieldIsDark, required, icon, ...props }: any) => (
+  <View style={styles.fieldWrapper}>
+    <View style={styles.labelRow}>
+      <Text style={styles.fieldLabel}>{label} {required && "*"}</Text>
     </View>
-  );
+    <View style={[styles.inputBox, { backgroundColor: fieldIsDark ? "#2C2C2E" : "#F2F4F7" }]}>
+      {icon && <Ionicons name={icon} size={18} color="#8E8E93" style={{ marginRight: 10 }} />}
+      <TextInput
+        style={[styles.input, { color: fieldIsDark ? "#FFFFFF" : "#1A1A1E" }]}
+        value={value}
+        onChangeText={onChange}
+        placeholder={placeholder || `Enter ${label.toLowerCase()}`}
+        placeholderTextColor="#636366"
+        {...props}
+      />
+    </View>
+  </View>
+);
 
   if (loading || authLoading) {
     return (

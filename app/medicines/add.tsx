@@ -105,19 +105,22 @@ export default function AddMedicineScreen() {
 
       if (error) throw error;
 
-      // 1. Schedule Expiry Alerts
-      if (formData.expiry_date) {
-        await notificationService.scheduleExpiryAlert(medicine.id, medicine.name, formData.expiry_date);
-      }
-
-      // 2. Schedule Daily Intake Reminders
-      if (formData.intake_times && formData.intake_times.length > 0) {
-        await notificationService.scheduleIntakeReminders(medicine.id, medicine.name, formData.intake_times);
+      // Schedule notifications — wrapped separately so they don't block the save
+      try {
+        if (formData.expiry_date) {
+          await notificationService.scheduleExpiryAlert(medicine.id, medicine.name, formData.expiry_date);
+        }
+        if (formData.intake_times && formData.intake_times.length > 0) {
+          await notificationService.scheduleIntakeReminders(medicine.id, medicine.name, formData.intake_times);
+        }
+      } catch (notifError) {
+        console.warn("Notification scheduling skipped:", notifError);
       }
 
       Alert.alert("Success", `${formData.name} added to your vault.`, [
         { text: "Done", onPress: () => router.replace("/(tabs)/Medicine" as any) }
       ]);
+
     } catch (error) {
       console.error("Save Error:", error);
       Alert.alert("Error", "Failed to save medicine.");
@@ -125,19 +128,6 @@ export default function AddMedicineScreen() {
       setLoading(false);
     }
   };
-
-  const CustomInput = ({ label, value, onChange, required, isDark: inputIsDark }: any) => (
-    <View style={styles.inputWrap}>
-      <Text style={styles.label}>{label} {required && "*"}</Text>
-      <TextInput
-        style={[styles.input, { backgroundColor: inputIsDark ? "#2C2C2E" : "#F2F4F7", color: inputIsDark ? "white" : "black" }]}
-        value={value}
-        onChangeText={onChange}
-        placeholder={`Enter ${label.toLowerCase()}`}
-        placeholderTextColor="#8E8E93"
-      />
-    </View>
-  );
 
   return (
     <SafeAreaView style={styles.container}>
@@ -155,10 +145,38 @@ export default function AddMedicineScreen() {
         <ScrollView style={styles.content} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
           <Text style={styles.sectionTitle}>Essential Details</Text>
           <View style={styles.card}>
-            <CustomInput label="Medicine Name" value={formData.name} onChange={(t: string) => updateField("name", t)} required isDark={isDark} />
-            <CustomInput label="Strength (e.g. 500mg)" value={formData.strength} onChange={(t: string) => updateField("strength", t)} isDark={isDark} />
-            <CustomInput label="Generic Name" value={formData.generic_name} onChange={(t: string) => updateField("generic_name", t)} isDark={isDark} />
+            <View style={styles.inputWrap}>
+              <Text style={styles.label}>Medicine Name *</Text>
+              <TextInput
+                style={[styles.input, { backgroundColor: isDark ? "#2C2C2E" : "#F2F4F7", color: isDark ? "white" : "black" }]}
+                value={formData.name}
+                onChangeText={(t) => updateField("name", t)}
+                placeholder="Enter medicine name"
+                placeholderTextColor="#8E8E93"
+              />
+            </View>
+            <View style={styles.inputWrap}>
+              <Text style={styles.label}>Strength (e.g. 500mg)</Text>
+              <TextInput
+                style={[styles.input, { backgroundColor: isDark ? "#2C2C2E" : "#F2F4F7", color: isDark ? "white" : "black" }]}
+                value={formData.strength}
+                onChangeText={(t) => updateField("strength", t)}
+                placeholder="Enter strength"
+                placeholderTextColor="#8E8E93"
+              />
+            </View>
+            <View style={styles.inputWrap}>
+              <Text style={styles.label}>Generic Name</Text>
+              <TextInput
+                style={[styles.input, { backgroundColor: isDark ? "#2C2C2E" : "#F2F4F7", color: isDark ? "white" : "black" }]}
+                value={formData.generic_name}
+                onChangeText={(t) => updateField("generic_name", t)}
+                placeholder="Enter generic name"
+                placeholderTextColor="#8E8E93"
+              />
+            </View>
           </View>
+
 
           <Text style={styles.sectionTitle}>Daily Reminders</Text>
           <View style={styles.card}>

@@ -1,6 +1,6 @@
 import { Medicine } from '@/types/medicine';
 import * as Speech from 'expo-speech';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 
 /**
  * MedicineChatService
