@@ -15,7 +15,7 @@ import {
   RecentActivity as RecentActivityType,
 } from "@/types/home";
 import { Medicine } from "@/types/medicine";
-import { useUser } from "@clerk/clerk-expo";
+import { useAuthContext } from "@/context/AuthContext";
 import { useRouter } from "expo-router";
 import React, { useEffect, useState, useCallback } from "react";
 import {
@@ -29,7 +29,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useUserSync } from "@/hooks/useUserSync";
+
 
 /**
  * HomeScreen
@@ -37,8 +37,7 @@ import { useUserSync } from "@/hooks/useUserSync";
  * Updated with Next Dose Countdown and interactive pull-to-refresh.
  */
 export default function HomeScreen() {
-  const { user } = useUser();
-  const { isSynced } = useUserSync();
+  const { user, isLoading: authLoading } = useAuthContext();
   const router = useRouter();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
@@ -62,21 +61,11 @@ export default function HomeScreen() {
    * Fetch all dashboard data
    */
   const fetchHomeData = useCallback(async () => {
-    if (!user || !isSynced) return;
+    if (!user) return;
 
     try {
-      const { data: dbUser, error: userError } = await supabase
-        .from("users")
-        .select("id")
-        .eq("clerk_user_id", user.id)
-        .single();
-
-      if (userError || !dbUser) {
-        console.error("User not found in Supabase:", userError);
-        return;
-      }
-
-      const userId = dbUser.id;
+      // In Supabase Auth, the user.id is the UUID we need
+      const userId = user.id;
 
       const [medicinesRes, activitiesRes, remindersRes, scansRes] = await Promise.all([
         supabase
@@ -162,7 +151,7 @@ export default function HomeScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [user, isSynced]);
+  }, [user]);
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -189,7 +178,7 @@ export default function HomeScreen() {
     try {
       // 1. Log the intake
       const { error } = await supabase.from("medication_logs").insert([{
-        user_id: (await supabase.from("users").select("id").eq("clerk_user_id", user?.id).single()).data?.id,
+        user_id: user?.id,
         medicine_id: medicineId,
         dose_amount: 1, // Default to 1
         taken_at: new Date().toISOString()
@@ -212,7 +201,7 @@ export default function HomeScreen() {
     }
   };
 
-  if (loading || !isSynced) {
+  if (loading || authLoading) {
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.center}>
@@ -238,7 +227,7 @@ export default function HomeScreen() {
         <View style={styles.header}>
           <View style={styles.headerLeft}>
             <Text style={styles.welcomeTitle}>
-              {getGreeting()}{user?.firstName ? `, ${user.firstName}` : ""}!
+              {getGreeting()}{user?.user_metadata?.full_name ? `, ${user.user_metadata.full_name}` : ""}!
             </Text>
             <Text style={styles.welcomeSubtitle}>
               {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}

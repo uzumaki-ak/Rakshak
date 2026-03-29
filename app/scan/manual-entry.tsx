@@ -1,4 +1,4 @@
-import { useUser } from "@clerk/clerk-expo";
+import { useAuthContext } from "@/context/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -31,7 +31,7 @@ export default function ManualEntryScreen() {
     scanId?: string;
     barcode?: string;
   }>();
-  const { user } = useUser();
+  const { user } = useAuthContext();
   const router = useRouter();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
@@ -186,17 +186,6 @@ export default function ManualEntryScreen() {
     setSaving(true);
 
     try {
-      // Get user UUID
-      const { data: userData, error: userError } = await supabase
-        .from("users")
-        .select("id")
-        .eq("clerk_user_id", user!.id)
-        .single();
-
-      if (userError || !userData) {
-        throw new Error("User not found");
-      }
-
       // Create scan record if manual entry (no scanId)
       let finalScanId = scanId;
       if (!scanId) {
@@ -213,7 +202,7 @@ export default function ManualEntryScreen() {
         .from("medicines")
         .insert([
           {
-            user_id: userData.id,
+            user_id: user!.id,
             name: formData.name.trim(),
             generic_name: formData.generic_name?.trim() || null,
             brand_name: formData.brand_name?.trim() || null,

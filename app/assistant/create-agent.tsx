@@ -1,5 +1,5 @@
 import { supabase } from "@/config/SupabaseConfig";
-import { useUser } from "@clerk/clerk-expo";
+import { useAuthContext } from "@/context/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useState } from "react";
@@ -34,7 +34,7 @@ const INPUT_TYPES = [
 ];
 
 export default function CreateAgentScreen() {
-  const { user } = useUser();
+  const { user } = useAuthContext();
   const router = useRouter();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
@@ -77,23 +77,11 @@ export default function CreateAgentScreen() {
     setLoading(true);
 
     try {
-      const { data: userData, error: userError } = await supabase
-        .from("users")
-        .select("id")
-        .eq("clerk_user_id", user.id)
-        .single();
-
-      if (userError || !userData) {
-        console.error("User not found:", userError);
-        Alert.alert("Error", "User not found in database");
-        return;
-      }
-
       const { data, error } = await supabase
         .from("user_agents")
         .insert([
           {
-            user_id: userData.id,
+            user_id: user.id,
             name: formData.name.trim(),
             description: formData.description.trim(),
             category: formData.category,

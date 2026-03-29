@@ -3,7 +3,7 @@ import ActivityItem from "@/components/history/ActivityItem";
 import FilterBar from "@/components/history/FilterBar";
 import { supabase } from "@/config/SupabaseConfig";
 import color from "@/shared/color";
-import { useUser } from "@clerk/clerk-expo";
+import { useAuthContext } from "@/context/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useEffect, useState, useCallback } from "react";
@@ -19,7 +19,7 @@ import {
   View,
   Alert,
 } from "react-native";
-import { useUserSync } from "@/hooks/useUserSync";
+
 
 interface HistoryItem {
   id: string;
@@ -37,8 +37,7 @@ const ITEMS_PER_PAGE = 20;
  * Consolidated view of all user activities: scans, medicine updates, AI chats, and notifications.
  */
 export default function HistoryScreen() {
-  const { user } = useUser();
-  const { isSynced } = useUserSync();
+  const { user, isLoading: authLoading } = useAuthContext();
   const router = useRouter();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
@@ -55,21 +54,13 @@ export default function HistoryScreen() {
   const [loadingMore, setLoadingMore] = useState(false);
 
   const fetchHistory = useCallback(async (pageNum = 1, isLoadMore = false) => {
-    if (!user || !isSynced) return;
+    if (!user) return;
 
     if (isLoadMore) setLoadingMore(true);
     else if (!refreshing) setLoading(true);
 
     try {
-      const { data: dbUser } = await supabase
-        .from("users")
-        .select("id")
-        .eq("clerk_user_id", user.id)
-        .single();
-
-      if (!dbUser) return;
-
-      const userId = dbUser.id;
+      const userId = user.id;
       const offset = (pageNum - 1) * ITEMS_PER_PAGE;
 
       const [medicines, scans, notifications] = await Promise.all([
@@ -119,7 +110,7 @@ export default function HistoryScreen() {
       setRefreshing(false);
       setLoadingMore(false);
     }
-  }, [user, isSynced, refreshing]);
+  }, [user, refreshing]);
 
   useEffect(() => {
     fetchHistory();
@@ -152,7 +143,7 @@ export default function HistoryScreen() {
     }
   };
 
-  if (loading || !isSynced) {
+  if (loading || authLoading) {
     return (
       <SafeAreaView style={[styles.safeArea, styles.center]}>
         <ActivityIndicator size="large" color={color.PRIMARY} />

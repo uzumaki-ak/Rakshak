@@ -4,7 +4,7 @@
     "slug": "rakshak",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/my-assets/login.png",
+    "icon": "./assets/images/medicine-icon.jpg",
     "scheme": "rakshak",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
@@ -15,7 +15,7 @@
       "package": "com.asnoi.rakshak",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
+        "foregroundImage": "./assets/images/medicine-icon.jpg",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
@@ -31,7 +31,7 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/my-assets/login.png",
+          "image": "./assets/images/medicine-icon.jpg",
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#ffffff",
@@ -44,6 +44,13 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "dc71100c-06ba-4f1b-a0ba-4ce0e4474268"
+      }
+    },
+    "owner": "lazy-horse"
   }
 }

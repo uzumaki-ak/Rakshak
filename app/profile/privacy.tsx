@@ -1,5 +1,5 @@
 import { supabase } from "@/config/SupabaseConfig";
-import { useUser } from "@clerk/clerk-expo";
+import { useAuthContext } from "@/context/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
@@ -16,7 +16,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function PrivacyScreen() {
-  const { user } = useUser();
+  const { user } = useAuthContext();
   const router = useRouter();
   const colorScheme = useColorScheme() as "light" | "dark" | null;
   const styles = createStyles(colorScheme);
@@ -38,7 +38,7 @@ export default function PrivacyScreen() {
       const { data, error } = await supabase
         .from("users")
         .select("data_sharing_consent, analytics_consent, marketing_consent")
-        .eq("clerk_user_id", user.id)
+        .eq("id", user.id)
         .single();
 
       if (error) throw error;
@@ -62,7 +62,7 @@ export default function PrivacyScreen() {
       const { error } = await supabase
         .from("users")
         .update({ [key]: value })
-        .eq("clerk_user_id", user.id);
+        .eq("id", user.id);
 
       if (error) throw error;
 

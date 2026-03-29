@@ -3,7 +3,7 @@ import FilterBar from "@/components/assistant/FilterBar";
 import SearchBar from "@/components/assistant/SearchBar";
 import { supabase } from "@/config/SupabaseConfig";
 import { AIAgent } from "@/types/assistant";
-import { useUser } from "@clerk/clerk-expo";
+import { useAuthContext } from "@/context/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
@@ -97,7 +97,7 @@ const PREDEFINED_AGENTS: AIAgent[] = [
 ];
 
 export default function AssistantScreen() {
-  const { user } = useUser();
+  const { user } = useAuthContext();
   const router = useRouter();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
@@ -115,19 +115,7 @@ export default function AssistantScreen() {
     if (!user) return;
 
     try {
-      const { data: userData, error: userError } = await supabase
-        .from("users")
-        .select("id")
-        .eq("clerk_user_id", user.id)
-        .single();
-
-      if (userError || !userData) {
-        console.error("User not found:", userError);
-        setUserAgents([]);
-        return;
-      }
-
-      const userId = userData.id;
+      const userId = user.id;
 
       // Fetch user's custom agents
       const { data: customAgents, error: agentsError } = await supabase

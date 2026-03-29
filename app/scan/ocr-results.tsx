@@ -1,4 +1,4 @@
-import { useUser } from "@clerk/clerk-expo";
+import { useAuthContext } from "@/context/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useState, useCallback } from "react";
@@ -20,7 +20,7 @@ import { supabase } from "@/config/SupabaseConfig";
 import { SupabaseScanService } from "@/services/supabase/scans";
 import { ScanFormData, ScanResult } from "@/types/scan";
 import color from "@/shared/color";
-import { useUserSync } from "@/hooks/useUserSync";
+
 
 /**
  * OCRResultsScreen
@@ -29,8 +29,7 @@ import { useUserSync } from "@/hooks/useUserSync";
  */
 export default function OCRResultsScreen() {
   const { scanId } = useLocalSearchParams<{ scanId: string }>();
-  const { user } = useUser();
-  const { isSynced } = useUserSync();
+  const { user, isLoading: authLoading } = useAuthContext();
   const router = useRouter();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
@@ -59,7 +58,7 @@ export default function OCRResultsScreen() {
   });
 
   const loadScanData = useCallback(async () => {
-    if (!user || !scanId || !isSynced) return;
+    if (!user || !scanId) return;
 
     try {
       setLoading(true);
@@ -96,7 +95,7 @@ export default function OCRResultsScreen() {
     } finally {
       setLoading(false);
     }
-  }, [user, scanId, isSynced, scanService, router]);
+  }, [user, scanId, scanService, router]);
 
   useEffect(() => {
     loadScanData();
@@ -114,19 +113,11 @@ export default function OCRResultsScreen() {
 
     setSaving(true);
     try {
-      const { data: dbUser } = await supabase
-        .from("users")
-        .select("id")
-        .eq("clerk_user_id", user!.id)
-        .single();
-
-      if (!dbUser) throw new Error("User disconnected.");
-
       const { data: medicine, error: medError } = await supabase
         .from("medicines")
         .insert([
           {
-            user_id: dbUser.id,
+            user_id: user!.id,
             name: formData.name.trim(),
             generic_name: formData.generic_name?.trim(),
             brand_name: formData.brand_name?.trim(),
@@ -185,7 +176,7 @@ export default function OCRResultsScreen() {
     </View>
   );
 
-  if (loading || !isSynced) {
+  if (loading || authLoading) {
     return (
       <SafeAreaView style={[styles.container, styles.center]}>
         <ActivityIndicator size="large" color={color.PRIMARY} />

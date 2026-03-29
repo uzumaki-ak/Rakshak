@@ -1,4 +1,4 @@
-import { useUser } from "@clerk/clerk-expo";
+import { useAuthContext } from "@/context/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { useRouter } from "expo-router";
@@ -24,7 +24,7 @@ const SCAN_AREA_SIZE = width * 0.7;
  * Scans barcodes/QR codes on medicine packaging
  */
 export default function BarcodeScannerScreen() {
-  const { user } = useUser();
+  const { user } = useAuthContext();
   const router = useRouter();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";

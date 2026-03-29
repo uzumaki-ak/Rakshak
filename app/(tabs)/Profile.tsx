@@ -1,6 +1,6 @@
 import { supabase } from "@/config/SupabaseConfig";
 import { HealthProfile, UserProfile } from "@/types/profile";
-import { useUser, useAuth } from "@clerk/clerk-expo";
+import { useAuthContext } from "@/context/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useEffect, useState, useCallback } from "react";
@@ -16,7 +16,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useUserSync } from "@/hooks/useUserSync";
+
 import color from "@/shared/color";
 import { LinearGradient } from "expo-linear-gradient";
 
@@ -25,9 +25,7 @@ import { LinearGradient } from "expo-linear-gradient";
  * User profile and health summary dashboard.
  */
 export default function ProfileScreen() {
-  const { user: clerkUser } = useUser();
-  const { signOut } = useAuth();
-  const { isSynced } = useUserSync();
+  const { user, isLoading: authLoading, signOut: authSignOut } = useAuthContext();
   const router = useRouter();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
@@ -38,9 +36,9 @@ export default function ProfileScreen() {
   const [loading, setLoading] = useState(true);
 
   const fetchProfileData = useCallback(async () => {
-    if (!clerkUser || !isSynced) return;
+    if (!user) return;
     try {
-      const { data: userData, error: userError } = await supabase.from("users").select("*").eq("clerk_user_id", clerkUser.id).single();
+      const { data: userData, error: userError } = await supabase.from("users").select("*").eq("id", user.id).single();
       if (userError) throw userError;
       setUserProfile(userData);
 
@@ -52,7 +50,7 @@ export default function ProfileScreen() {
     } finally {
       setLoading(false);
     }
-  }, [clerkUser, isSynced]);
+  }, [user]);
 
   useEffect(() => {
     fetchProfileData();
@@ -61,7 +59,10 @@ export default function ProfileScreen() {
   const handleSignOut = async () => {
     Alert.alert("Sign Out", "Are you sure you want to sign out?", [
       { text: "Cancel", style: "cancel" },
-      { text: "Sign Out", style: "destructive", onPress: () => signOut() },
+      { text: "Sign Out", style: "destructive", onPress: async () => {
+        await authSignOut();
+        router.replace("/");
+      }},
     ]);
   };
 
@@ -87,7 +88,7 @@ export default function ProfileScreen() {
     </TouchableOpacity>
   );
 
-  if (loading || !isSynced) {
+  if (loading || authLoading) {
     return (
       <SafeAreaView style={[styles.safeArea, styles.center]}>
         <ActivityIndicator size="large" color={color.PRIMARY} />

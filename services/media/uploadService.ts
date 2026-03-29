@@ -1,5 +1,7 @@
 import { supabase } from "@/config/SupabaseConfig";
 import * as FileSystem from 'expo-file-system';
+// @ts-ignore
+import { decode } from "base-64";
 
 /**
  * UploadService
@@ -48,7 +50,7 @@ export class UploadService {
    * Provider 1: Cloudinary
    */
   private async uploadToCloudinary(uri: string): Promise<string> {
-    const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+    const base64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' as any });
     const data = `data:image/jpeg;base64,${base64}`;
 
     const formData = new FormData();
@@ -69,7 +71,7 @@ export class UploadService {
    * Provider 2: ImageKit
    */
   private async uploadToImageKit(uri: string): Promise<string> {
-    const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+    const base64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' as any });
     const filename = uri.split('/').pop() || "upload.jpg";
 
     const formData = new FormData();
@@ -86,11 +88,11 @@ export class UploadService {
    * Provider 3: Supabase Storage (Final Fallback)
    */
   private async uploadToSupabase(uri: string): Promise<string> {
-    const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+    const base64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' as any });
     const filename = `reports/${Date.now()}-${uri.split('/').pop()}`;
     
-    // Convert base64 to ArrayBuffer for Supabase
-    const binary = atob(base64);
+    // Convert base64 to ArrayBuffer for Supabase using base-64 decode
+    const binary = decode(base64);
     const bytes = new Uint8Array(binary.length);
     for (let i = 0; i < binary.length; i++) {
         bytes[i] = binary.charCodeAt(i);

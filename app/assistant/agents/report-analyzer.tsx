@@ -1,5 +1,5 @@
 import { supabase } from "@/config/SupabaseConfig";
-import { useUser } from "@clerk/clerk-expo";
+import { useAuthContext } from "@/context/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
 import { useRouter } from "expo-router";
@@ -28,7 +28,7 @@ const REPORT_TYPES = [
 ];
 
 export default function ReportAnalyzerAgent() {
-  const { user } = useUser();
+  const { user } = useAuthContext();
   const router = useRouter();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
@@ -91,17 +91,7 @@ export default function ReportAnalyzerAgent() {
     setUploading(true);
 
     try {
-      // Get user UUID
-      const { data: userData } = await supabase
-        .from("users")
-        .select("id")
-        .eq("clerk_user_id", user.id)
-        .single();
-
-      if (!userData) return;
-
-      // NEW: fetch the file as a blob instead of reading base64 via deprecated API
-      // In Expo, fetch(uri) for a file:// or content:// URI returns a Response we can .blob()
+      // Fetch the file as a blob
       const response = await fetch(uri);
       const blob = await response.blob();
 
@@ -109,7 +99,7 @@ export default function ReportAnalyzerAgent() {
       const fileExt = fileName.includes(".")
         ? fileName.split(".").pop()
         : "bin";
-      const uploadFileName = `reports/${userData.id}/${Date.now()}.${fileExt}`;
+      const uploadFileName = `reports/${user.id}/${Date.now()}.${fileExt}`;
 
       // Upload blob directly to Supabase Storage
       const { data: uploadData, error: uploadError } = await supabase.storage
@@ -130,7 +120,7 @@ export default function ReportAnalyzerAgent() {
         .from("medical_reports")
         .insert([
           {
-            user_id: userData.id,
+            user_id: user.id,
             title: fileName,
             report_type: selectedType,
             file_path: publicUrl,
@@ -151,7 +141,7 @@ export default function ReportAnalyzerAgent() {
         .from("ai_chat_sessions")
         .insert([
           {
-            user_id: userData.id,
+            user_id: user.id,
             medical_report_id: report.id,
             title: `Report Analysis - ${
               REPORT_TYPES.find((t) => t.id === selectedType)?.name

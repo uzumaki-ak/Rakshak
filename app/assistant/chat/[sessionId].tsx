@@ -1,6 +1,6 @@
 import { supabase } from "@/config/SupabaseConfig";
 import { AIChatSession, ChatMessage } from "@/types/assistant";
-import { useUser } from "@clerk/clerk-expo";
+import { useAuthContext } from "@/context/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
@@ -31,7 +31,7 @@ import { Image } from "react-native";
  */
 export default function ChatSessionScreen() {
   const { sessionId } = useLocalSearchParams();
-  const { user } = useUser();
+  const { user } = useAuthContext();
   const router = useRouter();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
@@ -54,19 +54,11 @@ export default function ChatSessionScreen() {
     if (!user || !sessionId) return;
 
     try {
-      const { data: dbUser } = await supabase
-        .from("users")
-        .select("id")
-        .eq("clerk_user_id", user.id)
-        .single();
-
-      if (!dbUser) return;
-
       const { data: sessionData, error: sessionError } = await supabase
         .from("ai_chat_sessions")
         .select("*")
         .eq("id", sessionId)
-        .eq("user_id", dbUser.id)
+        .eq("user_id", user.id)
         .single();
 
       if (sessionError) throw sessionError;

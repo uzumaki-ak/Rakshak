@@ -1,5 +1,5 @@
 import { supabase } from "@/config/SupabaseConfig";
-import { useUser } from "@clerk/clerk-expo";
+import { useAuthContext } from "@/context/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useState } from "react";
@@ -34,7 +34,7 @@ const COMMON_SYMPTOMS = [
 ];
 
 export default function MedicineSuggesterAgent() {
-  const { user } = useUser();
+  const { user } = useAuthContext();
   const router = useRouter();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
@@ -67,21 +67,12 @@ export default function MedicineSuggesterAgent() {
     setLoading(true);
 
     try {
-      // Get user UUID
-      const { data: userData } = await supabase
-        .from("users")
-        .select("id")
-        .eq("clerk_user_id", user.id)
-        .single();
-
-      if (!userData) return;
-
       // Create new chat session
       const { data: session, error: sessionError } = await supabase
         .from("ai_chat_sessions")
         .insert([
           {
-            user_id: userData.id,
+            user_id: user.id,
             title: "Medicine Suggestions",
             session_type: "medicine_suggester",
             is_active: true,

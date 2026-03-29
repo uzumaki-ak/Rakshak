@@ -1,6 +1,6 @@
 import { supabase } from "@/config/SupabaseConfig";
 import { HealthProfile } from "@/types/profile";
-import { useUser } from "@clerk/clerk-expo";
+import { useAuthContext } from "@/context/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
@@ -18,7 +18,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function HealthProfileScreen() {
-  const { user } = useUser();
+  const { user } = useAuthContext();
   const router = useRouter();
   const colorScheme = useColorScheme() as "light" | "dark" | null;
   const styles = createStyles(colorScheme);
@@ -51,18 +51,10 @@ export default function HealthProfileScreen() {
     if (!user) return;
 
     try {
-      const { data: userData } = await supabase
-        .from("users")
-        .select("id")
-        .eq("clerk_user_id", user.id)
-        .single();
-
-      if (!userData) return;
-
       const { data, error } = await supabase
         .from("user_health_profiles")
         .select("*")
-        .eq("user_id", userData.id)
+        .eq("user_id", user.id)
         .single();
 
       if (error && error.code !== "PGRST116") throw error;
@@ -94,16 +86,8 @@ export default function HealthProfileScreen() {
 
     setSaving(true);
     try {
-      const { data: userData } = await supabase
-        .from("users")
-        .select("id")
-        .eq("clerk_user_id", user.id)
-        .single();
-
-      if (!userData) return;
-
       const profileData = {
-        user_id: userData.id,
+        user_id: user.id,
         height_cm: formData.height_cm ? parseInt(formData.height_cm) : null,
         weight_kg: formData.weight_kg ? parseFloat(formData.weight_kg) : null,
         blood_type: formData.blood_type || null,

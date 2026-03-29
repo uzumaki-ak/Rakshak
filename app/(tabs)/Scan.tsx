@@ -1,4 +1,4 @@
-import { useUser } from "@clerk/clerk-expo";
+import { useAuthContext } from "@/context/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
@@ -17,7 +17,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useCamera } from "@/hooks/scan-hook/useCamera";
 import { useScanning } from "@/hooks/scan-hook/useScanning";
 import { ScanMode, ScanResult } from "@/types/scan";
-import { useUserSync } from "@/hooks/useUserSync";
+
 import color from "@/shared/color";
 
 /**
@@ -25,8 +25,7 @@ import color from "@/shared/color";
  * Hub for all scanning activities: Camera OCR, Barcodes, and Manual Entry.
  */
 export default function ScanScreen() {
-  const { user } = useUser();
-  const { isSynced } = useUserSync();
+  const { user, isLoading: authLoading } = useAuthContext();
   const router = useRouter();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
@@ -46,7 +45,7 @@ export default function ScanScreen() {
   ];
 
   const loadData = useCallback(async () => {
-    if (!user || !isSynced) return;
+    if (!user) return;
     try {
       const [scans, stats] = await Promise.all([getRecentScans(5), getScanStats()]);
       setRecentScans(scans);
@@ -54,7 +53,7 @@ export default function ScanScreen() {
     } catch (error) {
       console.error("Scan Data Fetch Error:", error);
     }
-  }, [user, isSynced, getRecentScans, getScanStats]);
+  }, [user, getRecentScans, getScanStats]);
 
   useEffect(() => {
     loadData();
@@ -78,7 +77,7 @@ export default function ScanScreen() {
     </View>
   );
 
-  if (permissionsLoading || !isSynced) {
+  if (permissionsLoading || authLoading) {
     return (
       <SafeAreaView style={[styles.container, styles.center]}>
         <ActivityIndicator size="large" color={color.PRIMARY} />

@@ -1,6 +1,6 @@
 import { supabase } from "@/config/SupabaseConfig";
 import { Medicine } from "@/types/medicine";
-import { useUser } from "@clerk/clerk-expo";
+import { useAuthContext } from "@/context/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useEffect, useState, useCallback } from "react";
@@ -18,7 +18,7 @@ import {
 import color from "@/shared/color";
 
 export default function MedicinesScreen() {
-  const { user } = useUser();
+  const { user, isLoading: authLoading } = useAuthContext();
   const router = useRouter();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
@@ -31,18 +31,10 @@ export default function MedicinesScreen() {
   const fetchMedicines = useCallback(async () => {
     if (!user) return;
     try {
-      const { data: dbUser } = await supabase
-        .from("users")
-        .select("id")
-        .eq("clerk_user_id", user.id)
-        .single();
-
-      if (!dbUser) return;
-
       const { data, error } = await supabase
         .from("medicines")
         .select("*")
-        .eq("user_id", dbUser.id)
+        .eq("user_id", user.id)
         .order("name", { ascending: true });
 
       if (error) throw error;
@@ -64,7 +56,7 @@ export default function MedicinesScreen() {
     fetchMedicines();
   };
 
-  if (loading) {
+  if (loading || authLoading) {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" color={color.PRIMARY} />

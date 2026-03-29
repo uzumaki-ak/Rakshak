@@ -3,7 +3,7 @@ import FilterBar from "@/components/assistant/FilterBar";
 import SearchBar from "@/components/assistant/SearchBar";
 import { supabase } from "@/config/SupabaseConfig";
 import { AIAgent } from "@/types/assistant";
-import { useUser } from "@clerk/clerk-expo";
+import { useAuthContext } from "@/context/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useEffect, useState, useCallback } from "react";
@@ -17,9 +17,7 @@ import {
   TouchableOpacity,
   useColorScheme,
   View,
-  Alert,
 } from "react-native";
-import { useUserSync } from "@/hooks/useUserSync";
 import color from "@/shared/color";
 
 const PREDEFINED_AGENTS: AIAgent[] = [
@@ -69,14 +67,8 @@ const PREDEFINED_AGENTS: AIAgent[] = [
   },
 ];
 
-/**
- * AssistantScreen
- * Discovery hub for AI-powered health assistants.
- * Refactored for premium UI consistency and reliable synchronization.
- */
 export default function AssistantScreen() {
-  const { user } = useUser();
-  const { isSynced } = useUserSync();
+  const { user, isLoading: authLoading } = useAuthContext();
   const router = useRouter();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
@@ -89,21 +81,13 @@ export default function AssistantScreen() {
   const [activeFilter, setActiveFilter] = useState<"all" | "medicine" | "analysis" | "assistance" | "custom">("all");
 
   const fetchUserData = useCallback(async () => {
-    if (!user || !isSynced) return;
+    if (!user) return;
 
     try {
-      const { data: dbUser } = await supabase
-        .from("users")
-        .select("id")
-        .eq("clerk_user_id", user.id)
-        .single();
-
-      if (!dbUser) return;
-
       const { data: agents, error: agentsErr } = await supabase
         .from("user_agents")
         .select("*")
-        .eq("user_id", dbUser.id)
+        .eq("user_id", user.id)
         .eq("is_active", true)
         .order("created_at", { ascending: false });
 
@@ -130,7 +114,7 @@ export default function AssistantScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [user, isSynced]);
+  }, [user]);
 
   useEffect(() => {
     fetchUserData();
@@ -149,7 +133,7 @@ export default function AssistantScreen() {
     return matchesSearch && matchesCategory;
   });
 
-  if (loading || !isSynced) {
+  if (loading || authLoading) {
     return (
       <SafeAreaView style={[styles.safeArea, styles.center]}>
         <ActivityIndicator size="large" color={color.PRIMARY} />

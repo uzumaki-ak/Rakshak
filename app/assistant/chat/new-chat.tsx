@@ -1,5 +1,5 @@
 import { supabase } from "@/config/SupabaseConfig";
-import { useUser } from "@clerk/clerk-expo";
+import { useAuthContext } from "@/context/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useState, useCallback } from "react";
@@ -52,7 +52,7 @@ const PREDEFINED_AGENT_CONFIGS = {
  * Standardized with Poppins fonts and primary styling.
  */
 export default function NewChatScreen() {
-  const { user } = useUser();
+  const { user } = useAuthContext();
   const router = useRouter();
   const params = useLocalSearchParams();
   const agentType = params.agentType as string;
@@ -114,18 +114,10 @@ export default function NewChatScreen() {
  
     setLoading(true);
     try {
-      const { data: dbUser } = await supabase
-        .from("users")
-        .select("id")
-        .eq("clerk_user_id", user.id)
-        .single();
- 
-      if (!dbUser) throw new Error("User disconnected.");
- 
       const { data: session, error: sessErr } = await supabase
         .from("ai_chat_sessions")
         .insert([{
-          user_id: dbUser.id,
+          user_id: user.id,
           agent_id: agentConfig.isCustom ? agentConfig.id : null,
           title: agentConfig.name,
           session_type: agentConfig.sessionType,

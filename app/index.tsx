@@ -1,10 +1,9 @@
 import color from "@/shared/color";
-import { useAuth, useSSO } from "@clerk/clerk-expo";
-import * as AuthSession from "expo-auth-session";
+import { supabase } from "@/config/SupabaseConfig";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -16,131 +15,186 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
+  TextInput,
   View,
   useColorScheme,
+  KeyboardAvoidingView,
+  ScrollView,
 } from "react-native";
 import Typewriter from "./../components/type-writer";
-
-/**
- * useWarmUpBrowser
- * Optimization for expo-web-browser to speed up login redirect
- */
-export const useWarmUpBrowser = () => {
-  useEffect(() => {
-    void WebBrowser.warmUpAsync();
-    return () => {
-      void WebBrowser.coolDownAsync();
-    };
-  }, []);
-};
+import { useAuthContext } from "@/context/AuthContext";
 
 WebBrowser.maybeCompleteAuthSession();
 
 export default function Index() {
   const scheme = useColorScheme();
-  const effective = scheme === "dark" ? "dark" : "light";
-  const theme = themeStyles(effective);
+  const isDark = scheme === "dark";
+  const theme = themeStyles(isDark ? "dark" : "light");
 
-  const { isSignedIn, isLoaded } = useAuth();
+  const { user, isLoading } = useAuthContext();
   const router = useRouter();
-  const [loading, setLoading] = useState(true);
+  
+  const [authMode, setAuthMode] = useState<"signIn" | "signUp">("signIn");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [fullName, setFullName] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
-
-  const { startSSOFlow } = useSSO();
 
   // Redirect if already signed in
   useEffect(() => {
-    if (isLoaded && isSignedIn) {
+    if (!isLoading && user) {
       router.replace("/(tabs)/Home");
     }
-    if (isLoaded) {
-      setLoading(false);
+  }, [user, isLoading]);
+
+  const onAuthPress = async () => {
+    if (!email || !password || (authMode === "signUp" && !fullName)) {
+      Alert.alert("Error", "Please fill in all fields");
+      return;
     }
-  }, [isSignedIn, isLoaded]);
 
-  useWarmUpBrowser();
-
-  /**
-   * onLoginPress
-   * Triggers Clerk OAuth flow. 
-   * Global synchronization is handled by RootLayout's SyncWrapper.
-   */
-  const onLoginPress = useCallback(async () => {
-    if (loginLoading) return;
-    
     setLoginLoading(true);
     try {
-      const { createdSessionId, setActive } = await startSSOFlow({
-        strategy: "oauth_google",
-        redirectUrl: AuthSession.makeRedirectUri({
-          scheme: "rakshak", // Ensure this matches your app.json scheme
-        }),
-      });
+      if (authMode === "signUp") {
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: {
+              full_name: fullName,
+            },
+          },
+        });
+        
+        if (error) throw error;
+        
+        // Manual profile creation if needed (Trigger is preferred, but this is a fallback)
+        if (data.user) {
+            await supabase.from('users').insert([{
+                id: data.user.id,
+                clerk_user_id: data.user.id, // Keeping compatibility for now
+                email: email,
+                full_name: fullName,
+                is_active: true
+            }]);
+        }
 
-      if (createdSessionId && setActive) {
-        await setActive({ session: createdSessionId });
+        Alert.alert("Success", "Account created! You can now sign in.");
+        setAuthMode("signIn");
+      } else {
+        const { error } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
+        if (error) throw error;
       }
-    } catch (err) {
-      console.error("Login Error:", err);
-      Alert.alert(
-        "Login Failed",
-        "Could not sign in with Google. Please try again."
-      );
+    } catch (err: any) {
+      console.error("Auth Error:", err);
+      Alert.alert("Error", err.message || "Authentication failed");
     } finally {
       setLoginLoading(false);
     }
-  }, [startSSOFlow, loginLoading]);
+  };
 
-  // Loading state
-  if (loading || (isLoaded && isSignedIn)) {
+  if (isLoading || user) {
     return (
       <View style={[styles.container, styles.centered, { backgroundColor: theme.background }]}>
-        <ActivityIndicator size="large" color={"#A67B2A"} />
+        <ActivityIndicator size="large" color={color.PRIMARY} />
       </View>
     );
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}>
-      {/* Image block */}
-      <View style={styles.imageWrap}>
-        <Image
-          source={require("./../assets/my-assets/login.png")}
-          style={[
-            styles.image,
-            theme.imageTint ? { tintColor: theme.imageTint } : {},
-          ]}
-        />
-      </View>
+    <KeyboardAvoidingView 
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      style={{ flex: 1 }}
+    >
+      <ScrollView 
+        contentContainerStyle={{ flexGrow: 1 }}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={[styles.container, { backgroundColor: theme.background }]}>
+          {/* Image block */}
+          <View style={styles.imageWrap}>
+            <Image
+              source={require("./../assets/my-assets/login.png")}
+              style={[
+                styles.image,
+                theme.imageTint ? { tintColor: theme.imageTint } : {},
+              ]}
+            />
+          </View>
 
-      {/* Text & animation */}
-      <View style={styles.content}>
-        <Typewriter
-          texts={[
-            "Welcome to Rakshak",
-            "दवा सहायक में आपका स्वागत है",
-            "Your Smart Medicine Guide",
-          ]}
-          typingSpeed={100}
-          deleteSpeed={100}
-          pauseDuration={1200}
-          spaceBetween={false}
-          textStyle={[styles.title, { color: theme.title }]}
-        />
+          {/* Text & animation */}
+          <View style={styles.content}>
+            <Typewriter
+              texts={[
+                "Welcome to Rakshak",
+                "दवा सहायक में आपका स्वागत है",
+                "Your Smart Health Assistant",
+              ]}
+              typingSpeed={100}
+              deleteSpeed={100}
+              pauseDuration={1200}
+              spaceBetween={false}
+              textStyle={[styles.title, { color: theme.title }]}
+            />
+            
+            <Text style={[styles.subtitle, { color: theme.subtitle }]}>
+              Secure your health history with Supabase Auth.
+            </Text>
+          </View>
 
-        <Text style={[styles.subtitle, { color: theme.subtitle }]}>
-          Your smart medicine expiry & health assistant — track medicines, get
-          AI health insights, never miss expiry dates.
-        </Text>
-      </View>
+          {/* Auth Form */}
+          <View style={styles.formContainer}>
+            {authMode === "signUp" && (
+              <TextInput
+                style={[styles.input, { backgroundColor: isDark ? "#1C1C1E" : "#F2F2F7", color: theme.title }]}
+                placeholder="Full Name"
+                placeholderTextColor={isDark ? "#8E8E93" : "#C7C7CC"}
+                value={fullName}
+                onChangeText={setFullName}
+              />
+            )}
+            <TextInput
+              style={[styles.input, { backgroundColor: isDark ? "#1C1C1E" : "#F2F2F7", color: theme.title }]}
+              placeholder="Email"
+              placeholderTextColor={isDark ? "#8E8E93" : "#C7C7CC"}
+              autoCapitalize="none"
+              keyboardType="email-address"
+              value={email}
+              onChangeText={setEmail}
+            />
+            <TextInput
+              style={[styles.input, { backgroundColor: isDark ? "#1C1C1E" : "#F2F2F7", color: theme.title }]}
+              placeholder="Password"
+              placeholderTextColor={isDark ? "#8E8E93" : "#C7C7CC"}
+              secureTextEntry
+              value={password}
+              onChangeText={setPassword}
+            />
 
-      {/* Animated Login Button */}
-      <AnimatedLoginButton
-        onPress={onLoginPress}
-        loading={loginLoading}
-        theme={theme}
-      />
-    </View>
+            <TouchableOpacity
+              style={styles.toggleButton}
+              onPress={() => setAuthMode(authMode === "signIn" ? "signUp" : "signIn")}
+            >
+              <Text style={{ color: color.PRIMARY, fontSize: 14, fontFamily: "PoppinsRegular" }}>
+                {authMode === "signIn" ? "Need an account? Sign Up" : "Already have an account? Sign In"}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Animated Login Button */}
+          <AnimatedLoginButton
+            onPress={onAuthPress}
+            loading={loginLoading}
+            theme={theme}
+            mode={authMode}
+          />
+        </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -148,35 +202,15 @@ function AnimatedLoginButton({
   onPress,
   loading,
   theme,
+  mode
 }: {
   onPress: () => void;
   loading: boolean;
   theme: any;
+  mode: string;
 }) {
   const scale = useRef(new Animated.Value(1)).current;
-  const pulse = useRef(new Animated.Value(0)).current;
   const shimmer = useRef(new Animated.Value(-1)).current;
-
-  useEffect(() => {
-    const pulseLoop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulse, {
-          toValue: 1,
-          duration: 1600,
-          easing: Easing.inOut(Easing.quad),
-          useNativeDriver: true,
-        }),
-        Animated.timing(pulse, {
-          toValue: 0,
-          duration: 1600,
-          easing: Easing.inOut(Easing.quad),
-          useNativeDriver: true,
-        }),
-      ])
-    );
-    pulseLoop.start();
-    return () => pulseLoop.stop();
-  }, [pulse]);
 
   useEffect(() => {
     const loop = Animated.loop(
@@ -209,14 +243,6 @@ function AnimatedLoginButton({
     }).start();
   };
 
-  const shadowOpacity = pulse.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.06, 0.28],
-  });
-  const shadowRadius = pulse.interpolate({
-    inputRange: [0, 1],
-    outputRange: [6, 16],
-  });
   const shimmerTranslate = shimmer.interpolate({
     inputRange: [-1, 1],
     outputRange: [-280, 280],
@@ -229,8 +255,6 @@ function AnimatedLoginButton({
         {
           transform: [{ scale }],
           shadowColor: theme.shadowColor,
-          shadowOpacity,
-          shadowRadius,
           elevation: 6,
         },
       ]}
@@ -252,7 +276,7 @@ function AnimatedLoginButton({
             <ActivityIndicator size="small" color={theme.buttonText} />
           ) : (
             <Text style={[localStyles.buttonText, { color: theme.buttonText }]}>
-              Get Started
+              {mode === "signIn" ? "Log In" : "Create Account"}
             </Text>
           )}
 
@@ -304,7 +328,8 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === "android" ? 20 : 36,
+    paddingTop: Platform.OS === "android" ? 40 : 60,
+    paddingBottom: 40,
     justifyContent: "center",
     alignItems: "center",
   },
@@ -326,7 +351,7 @@ const styles = StyleSheet.create({
     width: "100%",
     alignItems: "center",
     paddingHorizontal: 12,
-    marginBottom: 18,
+    marginBottom: 24,
   },
   title: {
     fontSize: 22,
@@ -337,15 +362,32 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 16,
     textAlign: "center",
-    marginBottom: 18,
+    marginBottom: 0,
     lineHeight: 22,
     paddingHorizontal: 6,
+  },
+  formContainer: {
+    width: "100%",
+    paddingHorizontal: 10,
+    marginBottom: 24,
+  },
+  input: {
+    height: 54,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    marginBottom: 12,
+    fontSize: 16,
+    fontFamily: "PoppinsRegular",
+  },
+  toggleButton: {
+    alignItems: "center",
+    marginTop: 8,
   },
 });
 
 const localStyles = StyleSheet.create({
   buttonWrap: {
-    width: 200,
+    width: 220,
     borderRadius: 14,
     overflow: "visible",
   },
@@ -371,3 +413,4 @@ const localStyles = StyleSheet.create({
     transform: [{ rotate: "22deg" }],
   },
 });
+

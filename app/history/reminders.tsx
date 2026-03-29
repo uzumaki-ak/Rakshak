@@ -1,5 +1,5 @@
 import { supabase } from "@/config/SupabaseConfig";
-import { useUser } from "@clerk/clerk-expo";
+import { useAuthContext } from "@/context/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
@@ -27,7 +27,7 @@ interface Reminder {
 }
 
 export default function RemindersScreen() {
-  const { user } = useUser();
+  const { user } = useAuthContext();
   const router = useRouter();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
@@ -44,18 +44,10 @@ export default function RemindersScreen() {
     if (!user) return;
 
     try {
-      const { data: userData } = await supabase
-        .from("users")
-        .select("id")
-        .eq("clerk_user_id", user.id)
-        .single();
-
-      if (!userData) return;
-
       const { data, error } = await supabase
         .from("reminders")
         .select("*")
-        .eq("user_id", userData.id)
+        .eq("user_id", user.id)
         .order("remind_at", { ascending: true });
 
       if (error) throw error;

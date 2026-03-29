@@ -1,5 +1,5 @@
 import { supabase } from "@/config/SupabaseConfig";
-import { useUser } from "@clerk/clerk-expo";
+import { useAuthContext } from "@/context/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
@@ -24,7 +24,7 @@ interface EmergencyContact {
 }
 
 export default function EmergencyContactsScreen() {
-  const { user } = useUser();
+  const { user } = useAuthContext();
   const router = useRouter();
   const colorScheme = useColorScheme() as "light" | "dark" | null;
   const styles = createStyles(colorScheme);
@@ -41,18 +41,10 @@ export default function EmergencyContactsScreen() {
     if (!user) return;
 
     try {
-      const { data: userData } = await supabase
-        .from("users")
-        .select("id")
-        .eq("clerk_user_id", user.id)
-        .single();
-
-      if (!userData) return;
-
       const { data: healthProfile, error } = await supabase
         .from("user_health_profiles")
         .select("emergency_contact_name, emergency_contact_phone, emergency_contact_relation")
-        .eq("user_id", userData.id)
+        .eq("user_id", user.id)
         .single();
 
       if (error && error.code !== "PGRST116") throw error;
@@ -74,18 +66,10 @@ export default function EmergencyContactsScreen() {
     if (!user || !editingContact) return;
 
     try {
-      const { data: userData } = await supabase
-        .from("users")
-        .select("id")
-        .eq("clerk_user_id", user.id)
-        .single();
-
-      if (!userData) return;
-
       const { error } = await supabase
         .from("user_health_profiles")
         .upsert({
-          user_id: userData.id,
+          user_id: user.id,
           emergency_contact_name: editingContact.name,
           emergency_contact_phone: editingContact.phone,
           emergency_contact_relation: editingContact.relation,
@@ -112,14 +96,6 @@ export default function EmergencyContactsScreen() {
     if (!user) return;
 
     try {
-      const { data: userData } = await supabase
-        .from("users")
-        .select("id")
-        .eq("clerk_user_id", user.id)
-        .single();
-
-      if (!userData) return;
-
       const { error } = await supabase
         .from("user_health_profiles")
         .update({
@@ -127,7 +103,7 @@ export default function EmergencyContactsScreen() {
           emergency_contact_phone: null,
           emergency_contact_relation: null,
         })
-        .eq("user_id", userData.id);
+        .eq("user_id", user.id);
 
       if (error) throw error;
 

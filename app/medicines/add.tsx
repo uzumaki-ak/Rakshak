@@ -1,6 +1,6 @@
 import { supabase } from "@/config/SupabaseConfig";
 import { MedicineFormData } from "@/types/medicine";
-import { useUser } from "@clerk/clerk-expo";
+import { useAuthContext } from "@/context/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { useRouter } from "expo-router";
@@ -28,7 +28,7 @@ import { NotificationService } from "@/services/notifications/notificationServic
  * Features: Premium UI, Type Safety, Automatic Expiry Alerts, Daily Dose Reminders.
  */
 export default function AddMedicineScreen() {
-  const { user } = useUser();
+  const { user } = useAuthContext();
   const router = useRouter();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
@@ -81,18 +81,10 @@ export default function AddMedicineScreen() {
 
     setLoading(true);
     try {
-      const { data: dbUser } = await supabase
-        .from("users")
-        .select("id")
-        .eq("clerk_user_id", user.id)
-        .single();
-
-      if (!dbUser) throw new Error("Sync required.");
-
       const { data: medicine, error } = await supabase
         .from("medicines")
         .insert([{
-          user_id: dbUser.id,
+          user_id: user.id,
           name: formData.name.trim(),
           generic_name: formData.generic_name?.trim(),
           strength: formData.strength?.trim(),

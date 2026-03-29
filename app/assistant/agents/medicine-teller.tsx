@@ -1,5 +1,5 @@
 import { supabase } from "@/config/SupabaseConfig";
-import { useUser } from "@clerk/clerk-expo";
+import { useAuthContext } from "@/context/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
@@ -15,7 +15,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function MedicineTellerAgent() {
-  const { user } = useUser();
+  const { user } = useAuthContext();
   const router = useRouter();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
@@ -83,21 +83,12 @@ export default function MedicineTellerAgent() {
     setUploading(true);
 
     try {
-      // Get user UUID
-      const { data: userData } = await supabase
-        .from("users")
-        .select("id")
-        .eq("clerk_user_id", user.id)
-        .single();
-
-      if (!userData) return;
-
       // Create new chat session
       const { data: session, error: sessionError } = await supabase
         .from("ai_chat_sessions")
         .insert([
           {
-            user_id: userData.id,
+            user_id: user.id,
             title: "Medicine Identification",
             session_type: "medicine_teller",
             is_active: true,

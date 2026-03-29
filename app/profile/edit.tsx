@@ -1,5 +1,5 @@
 import { supabase } from "@/config/SupabaseConfig";
-import { useUser } from "@clerk/clerk-expo";
+import { useAuthContext } from "@/context/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
@@ -24,7 +24,7 @@ import color from "@/shared/color";
  * Allows users to update their personal details in the Supabase 'users' table.
  */
 export default function EditProfileScreen() {
-  const { user: clerkUser } = useUser();
+  const { user } = useAuthContext();
   const router = useRouter();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
@@ -41,15 +41,15 @@ export default function EditProfileScreen() {
 
   useEffect(() => {
     fetchProfile();
-  }, [clerkUser]);
+  }, [user]);
 
   const fetchProfile = async () => {
-    if (!clerkUser) return;
+    if (!user) return;
     try {
       const { data, error } = await supabase
         .from("users")
         .select("full_name, email, phone, country")
-        .eq("clerk_user_id", clerkUser.id)
+        .eq("id", user.id)
         .single();
 
       if (error) throw error;
@@ -69,7 +69,7 @@ export default function EditProfileScreen() {
   };
 
   const handleSave = async () => {
-    if (!clerkUser || !formData.full_name.trim()) {
+    if (!user || !formData.full_name.trim()) {
       Alert.alert("Error", "Name is required");
       return;
     }
@@ -84,9 +84,14 @@ export default function EditProfileScreen() {
           country: formData.country.trim(),
           updated_at: new Date().toISOString(),
         })
-        .eq("clerk_user_id", clerkUser.id);
+        .eq("id", user.id);
 
       if (error) throw error;
+
+      // Also update Supabase Auth metadata for consistency
+      await supabase.auth.updateUser({
+        data: { full_name: formData.full_name.trim() }
+      });
 
       Alert.alert("Success", "Profile updated successfully!", [
         { text: "OK", onPress: () => router.back() }
@@ -143,7 +148,7 @@ export default function EditProfileScreen() {
                 value={formData.email}
                 editable={false}
               />
-              <Text style={styles.helperText}>Email is linked to your Clerk account.</Text>
+              <Text style={styles.helperText}>Email is linked to your Supabase account.</Text>
             </View>
 
             <View style={styles.inputGroup}>

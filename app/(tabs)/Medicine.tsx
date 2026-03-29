@@ -4,7 +4,7 @@ import MedicineCard from "@/components/medicine/MedicineCard";
 import { supabase } from "@/config/SupabaseConfig";
 import color from "@/shared/color";
 import { Medicine } from "@/types/medicine";
-import { useUser } from "@clerk/clerk-expo";
+import { useAuthContext } from "@/context/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useEffect, useState, useCallback } from "react";
@@ -22,7 +22,7 @@ import {
   ScrollView,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useUserSync } from "@/hooks/useUserSync";
+
 
 /**
  * MedicinesScreen
@@ -30,8 +30,7 @@ import { useUserSync } from "@/hooks/useUserSync";
  * Enhanced with Supabase Realtime for instant synchronization.
  */
 export default function MedicinesScreen() {
-  const { user } = useUser();
-  const { isSynced } = useUserSync();
+  const { user, isLoading: authLoading } = useAuthContext();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
@@ -68,12 +67,9 @@ export default function MedicinesScreen() {
   };
 
   const fetchMedicines = useCallback(async () => {
-    if (!user || !isSynced) return;
+    if (!user) return;
     try {
-      const { data: dbUser } = await supabase.from("users").select("id").eq("clerk_user_id", user.id).single();
-      if (!dbUser) return;
-
-      const { data, error } = await supabase.from("medicines").select("*").eq("user_id", dbUser.id).order("expiry_date", { ascending: true });
+      const { data, error } = await supabase.from("medicines").select("*").eq("user_id", user.id).order("expiry_date", { ascending: true });
       if (error) throw error;
 
       const medicineData = (data || []) as Medicine[];
@@ -85,7 +81,7 @@ export default function MedicinesScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [user, isSynced, activeFilter, searchQuery]);
+  }, [user, activeFilter, searchQuery]);
 
   useEffect(() => {
     fetchMedicines();
@@ -123,7 +119,7 @@ export default function MedicinesScreen() {
     };
   })();
 
-  if (loading || !isSynced) {
+  if (loading || authLoading) {
     return (
       <SafeAreaView style={[styles.container, styles.center]}>
         <ActivityIndicator size="large" color={color.PRIMARY} />
